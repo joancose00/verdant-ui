@@ -37,18 +37,33 @@ export async function GET() {
       addressCounts = { error: 'Table not found or empty' };
     }
     
-    // Count records in ratio_data table if it exists
+    // Count records in address_ratios table if it exists
     let ratioCounts = {};
     try {
-      const abstractRatios = await sql`SELECT COUNT(*) as count FROM ratio_data WHERE chain = 'abstract'`;
-      const baseRatios = await sql`SELECT COUNT(*) as count FROM ratio_data WHERE chain = 'base'`;
+      const abstractRatios = await sql`SELECT COUNT(*) as count FROM address_ratios WHERE chain = 'abstract'`;
+      const baseRatios = await sql`SELECT COUNT(*) as count FROM address_ratios WHERE chain = 'base'`;
       ratioCounts = {
         abstract: parseInt(abstractRatios[0].count),
         base: parseInt(baseRatios[0].count)
       };
     } catch (ratioError) {
-      console.log('⚠️ ratio_data table may not exist:', ratioError.message);
+      console.log('⚠️ address_ratios table may not exist:', ratioError.message);
       ratioCounts = { error: 'Table not found or empty' };
+    }
+    
+    // Check some sample Base addresses to see what's wrong
+    let sampleBaseAddresses = [];
+    try {
+      const samples = await sql`
+        SELECT address, total_miners, active_miners, is_active, first_discovered_at
+        FROM miner_addresses 
+        WHERE chain = 'base' 
+        ORDER BY first_discovered_at DESC 
+        LIMIT 5
+      `;
+      sampleBaseAddresses = samples;
+    } catch (sampleError) {
+      sampleBaseAddresses = { error: sampleError.message };
     }
     
     return Response.json({
@@ -62,6 +77,7 @@ export async function GET() {
       tables: tables.map(t => t.table_name),
       addressCounts,
       ratioCounts,
+      sampleBaseAddresses,
       environment: {
         nodeEnv: process.env.NODE_ENV,
         vercelUrl: !!process.env.VERCEL_URL,
