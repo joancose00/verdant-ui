@@ -5,99 +5,8 @@ import {
   getAddressesNeedingRatioCalculation,
   getAllAddressesWithMiners
 } from '../../../lib/database/operations.js';
+import { getAddressMetricsDirect, getMinerStatsDirect } from '../../../utils/directCalls.js';
 
-// Get the base URL for API calls
-function getBaseUrl(req) {
-  // For Vercel deployment
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  
-  // For custom domain (NEXTAUTH_URL)
-  if (process.env.NEXTAUTH_URL) {
-    return process.env.NEXTAUTH_URL;
-  }
-  
-  // Extract from request headers as fallback
-  if (req && req.headers) {
-    const host = req.headers.get('host');
-    const protocol = req.headers.get('x-forwarded-proto') || 'https';
-    if (host) {
-      return `${protocol}://${host}`;
-    }
-  }
-  
-  // Local development fallback
-  return 'http://localhost:3000';
-}
-
-// Function to fetch address metrics with retry logic
-async function fetchAddressMetrics(chain, address, req) {
-  const maxRetries = 3;
-  const baseUrl = getBaseUrl(req);
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(`${baseUrl}/api/address-metrics`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, address })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok && !data.error) {
-        return data;
-      } else {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error(`📞 Attempt ${attempt}/${maxRetries} failed for ${address}:`, error.message);
-      
-      if (attempt === maxRetries) {
-        console.error(`❌ All attempts failed for ${address}`);
-        return null;
-      }
-      
-      const delay = chain === 'base' ? 500 : 300;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
-// Function to fetch miner stats with retry logic
-async function fetchMinerStats(chain, address, req) {
-  const maxRetries = 3;
-  const baseUrl = getBaseUrl(req);
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(`${baseUrl}/api/miner-stats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, address })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok && !data.error) {
-        return data;
-      } else {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error(`⛏️ Miner stats attempt ${attempt}/${maxRetries} failed for ${address}:`, error.message);
-      
-      if (attempt === maxRetries) {
-        console.error(`❌ All miner stats attempts failed for ${address}`);
-        return null;
-      }
-      
-      const delay = chain === 'base' ? 500 : 300;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
 
 
 
@@ -214,10 +123,10 @@ export async function POST(req) {
       // Process batch in parallel
       const promises = batch.map(async (address) => {
         try {
-          // Fetch both metrics and miner stats in parallel using HTTP calls
+          // Fetch both metrics and miner stats in parallel using direct calls
           const [metrics, minerStats] = await Promise.all([
-            fetchAddressMetrics(chain, address, req),
-            fetchMinerStats(chain, address, req)
+            getAddressMetricsDirect(chain, address),
+            getMinerStatsDirect(chain, address)
           ]);
           
           if (metrics && minerStats) {
