@@ -5,12 +5,15 @@ A comprehensive web interface for exploring Verdant World miner stats and addres
 ## Features
 
 - 🔍 **Address Discovery**: Scan blockchain for addresses with miners
-- 📊 **Miner Analytics**: View detailed stats for each miner (type, status, rewards, grace periods)
+- 📊 **Miner Analytics**: View detailed stats for each miner (type, status, rewards, grace periods)  
 - 💰 **Address Metrics**: Track deposits, withdrawals, and ratios
 - 🎨 **Color-Coded UI**: Visual distinction between miner types (Starter, Basic, Advanced, Elite)
 - 🔄 **Multi-Chain**: Support for both Abstract and Base networks
 - 🎛️ **Advanced Filtering**: Filter by active miners, sort by multiple criteria
 - 🌙 **Dark Theme**: Sleek dark interface optimized for web3 users
+- 🗄️ **Database Caching**: Fast address lookup with Neon PostgreSQL
+- ⚡ **Smart Scanning**: Auto-detects when to use cache vs fresh blockchain data
+- 📈 **Scan History**: Track discovery progress and performance
 
 ## Quick Start
 

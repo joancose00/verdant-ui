@@ -29,7 +29,7 @@ async function getAddressMetrics(address, chain = 'abstract') {
         // Convert to numbers for decimal calculation
         const depositsNum = Number(deposits);
         const withdrawalsNum = Number(withdrawals);
-        ratio = (1 + (withdrawalsNum / depositsNum)).toFixed(2);
+        ratio = (withdrawalsNum / depositsNum).toFixed(2);
     } else {
         ratio = "10.00";
     }

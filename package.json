@@ -10,10 +10,19 @@
     "lint": "next lint",
     "scan": "node scanAddresses.js"
   },
-  "keywords": ["verdant", "miners", "web3", "ethereum", "abstract", "base", "blockchain"],
+  "keywords": [
+    "verdant",
+    "miners",
+    "web3",
+    "ethereum",
+    "abstract",
+    "base",
+    "blockchain"
+  ],
   "author": "Verdant UI",
   "license": "MIT",
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
     "dotenv": "^17.2.0",
     "ethers": "^6.15.0",
     "next": "^15.4.2",

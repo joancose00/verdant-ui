@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
+import { formatNumber, formatRatio } from '../utils/formatters';
 
 // Miner type color themes
 const MINER_COLORS = {
@@ -151,7 +152,7 @@ export default function WalletQueryInterface({ chain, prefilledAddress }) {
             }}>
               <h3 style={{ margin: '0 0 15px 0', color: '#93bbfc', fontSize: '16px' }}>Deposits</h3>
               <p style={{ fontSize: '24px', fontWeight: 'bold', margin: 0, color: '#ffffff' }}>
-                {addressMetrics.deposits}
+                {formatNumber(addressMetrics.deposits)}
               </p>
             </div>
             <div style={{ 
@@ -163,7 +164,7 @@ export default function WalletQueryInterface({ chain, prefilledAddress }) {
             }}>
               <h3 style={{ margin: '0 0 15px 0', color: '#6ee7b7', fontSize: '16px' }}>Withdrawals</h3>
               <p style={{ fontSize: '24px', fontWeight: 'bold', margin: 0, color: '#ffffff' }}>
-                {addressMetrics.withdrawals}
+                {formatNumber(addressMetrics.withdrawals)}
               </p>
             </div>
             <div style={{ 
@@ -175,7 +176,7 @@ export default function WalletQueryInterface({ chain, prefilledAddress }) {
             }}>
               <h3 style={{ margin: '0 0 15px 0', color: '#fed7aa', fontSize: '16px' }}>Ratio</h3>
               <p style={{ fontSize: '28px', fontWeight: 'bold', margin: 0, color: '#ffffff' }}>
-                {addressMetrics.ratio}
+                {formatRatio(addressMetrics.ratio)}
               </p>
             </div>
           </div>
@@ -202,7 +203,7 @@ export default function WalletQueryInterface({ chain, prefilledAddress }) {
             </div>
             <div style={{ background: '#262626', padding: '20px', borderRadius: '8px', border: '1px solid #333' }}>
               <p style={{ margin: 0, color: '#888', fontSize: '14px' }}>Total Pending Rewards</p>
-              <p style={{ margin: '5px 0 0 0', fontSize: '20px', fontWeight: 'bold', color: '#fbbf24' }}>{minerStats.totalPendingRewards} VERDITE</p>
+              <p style={{ margin: '5px 0 0 0', fontSize: '20px', fontWeight: 'bold', color: '#fbbf24' }}>{formatNumber(minerStats.totalPendingRewards)} VERDITE</p>
             </div>
           </div>
           
@@ -360,7 +361,7 @@ export default function WalletQueryInterface({ chain, prefilledAddress }) {
                         }}>
                           <span style={{ color: '#a3a3a3' }}>Rewards:</span>
                           <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>
-                            {miner.pendingRewards}
+                            {formatNumber(miner.pendingRewards)}
                           </span>
                         </div>
                       </div>

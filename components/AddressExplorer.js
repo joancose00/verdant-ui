@@ -1,35 +1,86 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { formatNumber } from '../utils/formatters';
 
 export default function AddressExplorer({ chain, onAddressSelect }) {
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [maxMiners, setMaxMiners] = useState(500);
+  const maxMiners = 100;
+  const [fromCache, setFromCache] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [scanProgress, setScanProgress] = useState(null);
+  const [scanNotification, setScanNotification] = useState(null);
 
-  const scanAddresses = async () => {
+  const scanForMoreAddresses = async () => {
     setError('');
     setLoading(true);
+    setScanNotification(null); // Clear previous notification
 
     try {
       const response = await fetch('/api/scan-addresses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, maxMiners })
+        body: JSON.stringify({ chain, maxMiners, scanType: 'incremental' })
       });
 
       const data = await response.json();
 
       if (data.error) throw new Error(data.error);
 
-      setAddresses(data.addresses);
+      setAddresses(data.addresses || []);
+      setFromCache(data.fromCache);
+      setLastUpdated(data.lastUpdated || new Date().toISOString());
+      setScanProgress(data.scanProgress);
+
+      // Show scan results notification
+      const notification = {
+        type: 'success',
+        newAddresses: data.newAddressesFound || 0,
+        scannedMiners: data.scannedMiners || 0,
+        totalAddresses: data.totalAddresses || 0,
+        scanDuration: data.scanDuration ? Math.round(data.scanDuration / 1000) : 0
+      };
+      setScanNotification(notification);
+
+      // Auto-hide notification after 8 seconds
+      setTimeout(() => setScanNotification(null), 8000);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  const loadCachedAddresses = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      const response = await fetch(`/api/scan-addresses?chain=${chain}`, {
+        method: 'GET'
+      });
+
+      const data = await response.json();
+
+      if (data.error) throw new Error(data.error);
+
+      setAddresses(data.addresses || []);
+      setFromCache(data.fromCache);
+      setLastUpdated(data.lastUpdated);
+      setScanProgress(data.scanProgress);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load cached addresses on component mount and chain change
+  useEffect(() => {
+    loadCachedAddresses();
+  }, [chain]);
 
   return (
     <div style={{ 
@@ -45,33 +96,11 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
       </p>
 
       <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ color: '#a3a3a3', fontSize: '14px' }}>Scan limit:</label>
-          <select
-            value={maxMiners}
-            onChange={(e) => setMaxMiners(parseInt(e.target.value))}
-            style={{
-              padding: '6px 12px',
-              border: '1px solid #333',
-              borderRadius: '6px',
-              background: '#262626',
-              color: '#ffffff',
-              fontSize: '14px'
-            }}
-            disabled={loading}
-          >
-            <option value={100}>100 miners</option>
-            <option value={500}>500 miners</option>
-            <option value={1000}>1000 miners</option>
-            <option value={2000}>2000 miners</option>
-          </select>
-        </div>
-
         <button
-          onClick={scanAddresses}
+          onClick={scanForMoreAddresses}
           disabled={loading}
           style={{
-            padding: '8px 20px',
+            padding: '8px 16px',
             background: loading ? '#404040' : '#3b82f6',
             color: 'white',
             border: 'none',
@@ -81,9 +110,158 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
             cursor: loading ? 'not-allowed' : 'pointer'
           }}
         >
-          {loading ? 'Scanning...' : 'Scan for Addresses'}
+          {loading ? 'Scanning...' : 'Scan for More'}
         </button>
       </div>
+
+      {scanNotification && (
+        <div style={{ 
+          margin: '0 0 20px 0',
+          padding: '15px',
+          background: '#0f3b0f',
+          borderRadius: '8px',
+          border: '2px solid #10b981',
+          position: 'relative',
+          animation: 'slideIn 0.3s ease-out'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '18px' }}>✅</span>
+                <h4 style={{ margin: 0, color: '#10b981', fontSize: '16px', fontWeight: 'bold' }}>
+                  Scan Complete!
+                </h4>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '8px' }}>
+                <div>
+                  <span style={{ color: '#6ee7b7', fontSize: '12px' }}>New Addresses Found</span>
+                  <div style={{ color: '#ffffff', fontWeight: 'bold', fontSize: '18px' }}>
+                    {scanNotification.newAddresses}
+                  </div>
+                </div>
+                
+                <div>
+                  <span style={{ color: '#6ee7b7', fontSize: '12px' }}>Miners Scanned</span>
+                  <div style={{ color: '#ffffff', fontWeight: 'bold', fontSize: '18px' }}>
+                    {scanNotification.scannedMiners}
+                  </div>
+                </div>
+                
+                <div>
+                  <span style={{ color: '#6ee7b7', fontSize: '12px' }}>Total Addresses</span>
+                  <div style={{ color: '#ffffff', fontWeight: 'bold', fontSize: '18px' }}>
+                    {scanNotification.totalAddresses}
+                  </div>
+                </div>
+                
+                <div>
+                  <span style={{ color: '#6ee7b7', fontSize: '12px' }}>Duration</span>
+                  <div style={{ color: '#ffffff', fontWeight: 'bold', fontSize: '18px' }}>
+                    {scanNotification.scanDuration}s
+                  </div>
+                </div>
+              </div>
+              
+              {scanNotification.newAddresses === 0 ? (
+                <p style={{ margin: 0, color: '#a3a3a3', fontSize: '14px', fontStyle: 'italic' }}>
+                  No new addresses found.
+                </p>
+              ) : (
+                <p style={{ margin: 0, color: '#6ee7b7', fontSize: '14px' }}>
+                  🎉 Great! Found {scanNotification.newAddresses} new addresses with miners.
+                </p>
+              )}
+            </div>
+            
+            <button
+              onClick={() => setScanNotification(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#a3a3a3',
+                fontSize: '18px',
+                cursor: 'pointer',
+                padding: '4px',
+                marginLeft: '8px'
+              }}
+              title="Dismiss notification"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      {scanProgress && (
+        <div style={{ 
+          margin: '15px 0',
+          padding: '15px',
+          background: '#0f0f0f',
+          borderRadius: '8px',
+          border: '1px solid #333'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h4 style={{ margin: 0, color: '#ffffff', fontSize: '14px' }}>Scan Progress</h4>
+            {scanProgress.hasMore && (
+              <span style={{ 
+                color: '#f59e0b', 
+                fontSize: '12px',
+                padding: '2px 8px',
+                background: '#7c2d12',
+                borderRadius: '4px',
+                border: '1px solid #f59e0b'
+              }}>
+                More available
+              </span>
+            )}
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+            <div>
+              <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Last Checked ID</span>
+              <div style={{ color: '#ffffff', fontWeight: 'bold' }}>
+                {scanProgress.lastCheckedMinerId?.toLocaleString() || 0}
+              </div>
+            </div>
+            
+            <div>
+              <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Total in Contract</span>
+              <div style={{ color: '#ffffff', fontWeight: 'bold' }}>
+                {scanProgress.totalMinersInContract?.toLocaleString() || 'Unknown'}
+              </div>
+            </div>
+            
+            <div>
+              <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Coverage</span>
+              <div style={{ color: '#10b981', fontWeight: 'bold' }}>
+                {scanProgress.totalMinersInContract && scanProgress.lastCheckedMinerId 
+                  ? `${Math.round((scanProgress.lastCheckedMinerId / scanProgress.totalMinersInContract) * 100)}%`
+                  : '0%'}
+              </div>
+            </div>
+          </div>
+          
+          {scanProgress.totalMinersInContract && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ 
+                background: '#333', 
+                height: '6px', 
+                borderRadius: '3px', 
+                overflow: 'hidden' 
+              }}>
+                <div style={{
+                  background: '#10b981',
+                  height: '100%',
+                  width: `${Math.min((scanProgress.lastCheckedMinerId / scanProgress.totalMinersInContract) * 100, 100)}%`,
+                  borderRadius: '3px',
+                  transition: 'width 0.3s ease'
+                }}></div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ 
@@ -99,9 +277,55 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
 
       {addresses.length > 0 && (
         <div>
-          <h3 style={{ color: '#ffffff', margin: '20px 0 15px 0' }}>
-            Found Addresses ({addresses.length})
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '20px 0 15px 0' }}>
+            <h3 style={{ color: '#ffffff', margin: 0 }}>
+              Found Addresses ({addresses.length})
+            </h3>
+            
+            {fromCache && lastUpdated && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px',
+                padding: '6px 12px',
+                background: '#0f3b0f',
+                borderRadius: '6px',
+                border: '1px solid #10b981'
+              }}>
+                <div style={{ 
+                  width: '8px', 
+                  height: '8px', 
+                  borderRadius: '50%', 
+                  background: '#10b981' 
+                }}></div>
+                <span style={{ color: '#6ee7b7', fontSize: '12px' }}>
+                  Cached: {new Date(lastUpdated).toLocaleDateString()}
+                </span>
+              </div>
+            )}
+            
+            {!fromCache && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px',
+                padding: '6px 12px',
+                background: '#1e3a8a',
+                borderRadius: '6px',
+                border: '1px solid #3b82f6'
+              }}>
+                <div style={{ 
+                  width: '8px', 
+                  height: '8px', 
+                  borderRadius: '50%', 
+                  background: '#3b82f6' 
+                }}></div>
+                <span style={{ color: '#93bbfc', fontSize: '12px' }}>
+                  Updated
+                </span>
+              </div>
+            )}
+          </div>
           
           <div style={{ 
             display: 'grid', 
@@ -173,7 +397,7 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
             border: '1px solid #10b981'
           }}>
             <p style={{ margin: 0, color: '#6ee7b7', fontSize: '14px' }}>
-              💡 <strong>Tip:</strong> Click on any address above to automatically query their miner stats and metrics!
+              💡 <strong>Tip:</strong> Click on any address above to automatically query their miner stats and metrics! Use "Scan for More" to discover additional addresses.
             </p>
           </div>
         </div>
