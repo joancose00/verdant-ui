@@ -11,7 +11,7 @@ const STORAGE_CORE_ABI = [
 async function debugBase() {
     console.log('🔍 Debugging Base network...');
     
-    const rpcUrl = process.env.BASE_RPC;
+    const rpcUrl = process.env.RPC_URL_BASE;
     const storageAddress = process.env.STORAGE_CONTRACT_BASE;
     
     console.log(`📡 RPC URL: ${rpcUrl}`);

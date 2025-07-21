@@ -24,7 +24,7 @@ export async function POST(req) {
 
     // Setup based on chain
     const isBase = chain === 'base';
-    const rpcUrl = isBase ? process.env.BASE_RPC : process.env.ABS_RPC;
+    const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
     const minerContract = isBase ? process.env.MINER_CONTRACT_BASE : process.env.MINER_CONTRACT_ABS;
 
     const provider = new ethers.JsonRpcProvider(rpcUrl);

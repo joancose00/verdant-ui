@@ -33,7 +33,7 @@ async function incrementalScanFromId(chain, startMinerId, maxMiners = 100, batch
     
     // Setup provider and contract
     const isBase = chain === 'base';
-    const rpcUrl = isBase ? process.env.BASE_RPC : process.env.ABS_RPC;
+    const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
     const storageAddress = isBase ? process.env.STORAGE_CONTRACT_BASE : process.env.STORAGE_CONTRACT_ABS;
     
     const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -175,7 +175,7 @@ async function incrementalScanFromId(chain, startMinerId, maxMiners = 100, batch
  */
 async function getTotalMiners(chain) {
     const isBase = chain === 'base';
-    const rpcUrl = isBase ? process.env.BASE_RPC : process.env.ABS_RPC;
+    const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
     const storageAddress = isBase ? process.env.STORAGE_CONTRACT_BASE : process.env.STORAGE_CONTRACT_ABS;
     
     const provider = new ethers.JsonRpcProvider(rpcUrl);

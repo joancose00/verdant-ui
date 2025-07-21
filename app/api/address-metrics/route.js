@@ -18,7 +18,7 @@ export async function POST(req) {
     // Select contract and RPC based on chain
     const isBase = chain === 'base';
     const storageAddress = isBase ? process.env.STORAGE_CONTRACT_BASE : process.env.STORAGE_CONTRACT_ABS;
-    const rpcUrl = isBase ? process.env.BASE_RPC : process.env.ABS_RPC;
+    const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
 
     // Connect to provider
     const provider = new ethers.JsonRpcProvider(rpcUrl);

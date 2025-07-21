@@ -5,74 +5,9 @@ import {
   getAddressesNeedingRatioCalculation,
   getAllAddressesWithMiners
 } from '../../../lib/database/operations.js';
+import { getAddressMetrics, getMinerStats } from '../../../utils/metrics.js';
 
-// Function to fetch address metrics with retry logic for Base network
-async function fetchAddressMetrics(chain, address) {
-  const maxRetries = 3; // Allow 3 retries for both chains to handle rate limits
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/address-metrics`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, address })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok && !data.error) {
-        return data;
-      } else {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error(`📞 Attempt ${attempt}/${maxRetries} failed for ${address}:`, error.message);
-      
-      if (attempt === maxRetries) {
-        console.error(`❌ All attempts failed for ${address}`);
-        return null;
-      }
-      
-      // Wait before retrying (balanced for Alchemy rate limits)
-      const delay = chain === 'base' ? 500 : 300;
-      console.log(`⏳ Retrying ${address} in ${delay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
 
-// Function to fetch miner stats with retry logic
-async function fetchMinerStats(chain, address) {
-  const maxRetries = 3; // Allow 3 retries for both chains to handle rate limits
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/miner-stats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, address })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok && !data.error) {
-        return data;
-      } else {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error(`⛏️ Miner stats attempt ${attempt}/${maxRetries} failed for ${address}:`, error.message);
-      
-      if (attempt === maxRetries) {
-        console.error(`❌ All miner stats attempts failed for ${address}`);
-        return null;
-      }
-      
-      const delay = chain === 'base' ? 500 : 300;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
@@ -189,11 +124,11 @@ export async function POST(req) {
         try {
           // Fetch both metrics and miner stats in parallel
           const [metrics, minerStats] = await Promise.all([
-            fetchAddressMetrics(chain, address),
-            fetchMinerStats(chain, address)
+            getAddressMetrics(chain, address),
+            getMinerStats(chain, address)
           ]);
           
-          if (metrics && !metrics.error && minerStats && !minerStats.error) {
+          if (metrics && minerStats) {
             const deposits = parseFloat(metrics.deposits) || 0;
             const withdrawals = parseFloat(metrics.withdrawals) || 0;
             const activeMiners = parseInt(minerStats.activeMiners) || 0;

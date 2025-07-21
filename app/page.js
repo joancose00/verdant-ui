@@ -215,7 +215,7 @@ export default function Home() {
                   Base
                 </h2>
                 <p style={{ color: '#3b82f6', fontSize: '18px', marginBottom: '24px' }}>
-                  {formatNumber(543)} addresses discovered
+                  {addressCounts.loading ? 'Loading...' : `${formatNumber(addressCounts.base)} addresses discovered`}
                 </p>
                 <div style={{ 
                   display: 'flex', 
