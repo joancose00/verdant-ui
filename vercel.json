@@ -1,0 +1,24 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/**/*.js": {
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "MINER_CONTRACT_ABS": "@miner_contract_abs",
+    "BULK_CONTRACT_ABS": "@bulk_contract_abs",
+    "ITEM_CONTRACT_ABS": "@item_contract_abs",
+    "STORAGE_CONTRACT_ABS": "@storage_contract_abs",
+    "MINER_CONTRACT_BASE": "@miner_contract_base",
+    "BULK_CONTRACT_BASE": "@bulk_contract_base",
+    "ITEM_CONTRACT_BASE": "@item_contract_base",
+    "STORAGE_CONTRACT_BASE": "@storage_contract_base",
+    "RPC_URL_ABS": "@rpc_url_abs",
+    "RPC_URL_BASE": "@rpc_url_base"
+  }
+}

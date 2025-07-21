@@ -1,0 +1,23 @@
+{
+  "name": "verdant-ui",
+  "version": "1.0.0",
+  "description": "Verdant UI - Miner Stats & Address Metrics Explorer for Abstract and Base chains",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "scan": "node scanAddresses.js"
+  },
+  "keywords": ["verdant", "miners", "web3", "ethereum", "abstract", "base", "blockchain"],
+  "author": "Verdant UI",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.2.0",
+    "ethers": "^6.15.0",
+    "next": "^15.4.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}
