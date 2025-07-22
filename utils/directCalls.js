@@ -114,9 +114,17 @@ export async function getMinerStatsDirect(chain, address) {
     let activeMinersCount = 0;
     let totalPendingRewards = 0n;
     
+    console.log(`🕐 Current time: ${currentTime} (${new Date(currentTime * 1000).toISOString()})`);
+    
     const miners = minerIds.map((id, index) => {
       const gracePeriodEndTime = Number(gracePeriodEnd[index]);
-      const isActive = gracePeriodEndTime > currentTime;
+      // Use same logic as wallet interface: lives > 0 && shields > 0
+      const isActive = lives[index] > 0 && shields[index] > 0;
+      
+      // Debug first few miners
+      if (index < 3) {
+        console.log(`⛏️ Miner ${id}: lives=${lives[index]}, shields=${shields[index]}, isActive=${isActive}`);
+      }
       
       if (isActive) {
         activeMinersCount++;

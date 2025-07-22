@@ -58,41 +58,48 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  const debugLogs = [];
+  const log = (message) => {
+    console.log(message);
+    debugLogs.push(`${new Date().toISOString()}: ${message}`);
+  };
+
   try {
     const { chain = 'abstract', scanType = 'update', batchSize = 10 } = await req.json();
+    log(`📊 Starting ratio calculation for ${chain} chain (${scanType} mode)`);
 
     // Validate parameters
     if (!['abstract', 'base'].includes(chain)) {
-      return Response.json({ error: 'Invalid chain. Use "abstract" or "base"' }, { status: 400 });
+      return Response.json({ error: 'Invalid chain. Use "abstract" or "base"', debugLogs }, { status: 400 });
     }
 
     // Initialize database if needed
     try {
       await initializeDatabase();
+      log('✅ Database initialized successfully');
     } catch (dbError) {
-      console.log('Database already initialized or minor error:', dbError.message);
+      log(`⚠️ Database init: ${dbError.message}`);
     }
 
     const startTime = Date.now();
-    console.log(`📊 Starting ratio calculation for ${chain} chain (${scanType} mode)`);
 
     // Get addresses to process based on scan type
     let addressesToProcess;
     if (scanType === 'scanAll') {
       // Get all addresses with active miners, ignoring existing ratios
       const allAddresses = await getAllAddressesWithMiners(chain);
-      console.log(`🔍 Found ${allAddresses.length} total addresses with active miners`);
-      console.log(`📝 Sample addresses: ${allAddresses.slice(0, 5).join(', ')}`);
+      log(`🔍 Found ${allAddresses.length} total addresses with active miners`);
+      log(`📝 Sample addresses: ${allAddresses.slice(0, 5).join(', ')}`);
       addressesToProcess = allAddresses;
     } else {
       // Get only addresses that need ratio calculation (no cached ratios)
       addressesToProcess = await getAddressesNeedingRatioCalculation(chain, batchSize);
-      console.log(`🔍 Found ${addressesToProcess.length} addresses needing ratio calculation`);
-      console.log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
+      log(`🔍 Found ${addressesToProcess.length} addresses needing ratio calculation`);
+      log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
     }
     
     if (addressesToProcess.length === 0) {
-      console.log(`📋 No addresses need ratio calculation for ${chain} chain`);
+      log(`📋 No addresses need ratio calculation for ${chain} chain`);
       const existingRatios = await getCachedRatios(chain, 100);
       
       return Response.json({
@@ -103,11 +110,12 @@ export async function POST(req) {
         newRatiosCalculated: 0,
         totalRatios: existingRatios.length,
         scanDuration: Date.now() - startTime,
-        lastUpdated: existingRatios[0]?.lastCalculatedAt || new Date().toISOString()
+        lastUpdated: existingRatios[0]?.lastCalculatedAt || new Date().toISOString(),
+        debugLogs
       });
     }
 
-    console.log(`📈 Processing ${addressesToProcess.length} addresses for ratio calculation`);
+    log(`📈 Processing ${addressesToProcess.length} addresses for ratio calculation`);
 
     let ratiosCalculated = 0;
     let ratiosErrors = 0;
@@ -121,19 +129,19 @@ export async function POST(req) {
       const batch = addressesToProcess.slice(i, i + rateBatchSize);
       const currentBatch = Math.floor(i/rateBatchSize) + 1;
       const totalBatches = Math.ceil(addressesToProcess.length/rateBatchSize);
-      console.log(`⚡ Processing ratio batch ${currentBatch}/${totalBatches} (addresses ${i + 1}-${Math.min(i + rateBatchSize, addressesToProcess.length)})`);
+      log(`⚡ Processing ratio batch ${currentBatch}/${totalBatches} (addresses ${i + 1}-${Math.min(i + rateBatchSize, addressesToProcess.length)})`);
 
       // Process batch in parallel
       const promises = batch.map(async (address) => {
         try {
-          console.log(`   🔍 ${address}: Fetching metrics and miner stats...`);
+          log(`   🔍 ${address}: Fetching metrics and miner stats...`);
           // Fetch both metrics and miner stats in parallel using direct calls
           const [metrics, minerStats] = await Promise.all([
             getAddressMetricsDirect(chain, address),
             getMinerStatsDirect(chain, address)
           ]);
           
-          console.log(`   📥 ${address}: Metrics result: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats result: ${minerStats ? 'SUCCESS' : 'FAILED'}`);
+          log(`   📥 ${address}: Metrics result: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats result: ${minerStats ? 'SUCCESS' : 'FAILED'}`);
           
           if (metrics && minerStats) {
             const deposits = parseFloat(metrics.deposits) || 0;
@@ -143,11 +151,11 @@ export async function POST(req) {
             
             // Only process addresses with active miners
             if (activeMiners === 0) {
-              console.log(`   ⚠️  ${address}: No active miners (${totalMiners} total, ${activeMiners} active) - skipping`);
+              log(`   ⚠️  ${address}: No active miners (${totalMiners} total, ${activeMiners} active) - skipping`);
               return false;
             }
             
-            console.log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals`);
+            log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals`);
             
             // Calculate true ratio: withdrawals / deposits
             let ratio = 0;
@@ -200,13 +208,15 @@ export async function POST(req) {
       newRatiosCalculated: ratiosCalculated,
       totalRatios: updatedRatios.length,
       scanDuration: duration,
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      debugLogs
     });
 
   } catch (error) {
-    console.error('Ratio calculation error:', error);
+    log(`❌ Ratio calculation error: ${error.message}`);
     return Response.json({ 
-      error: error.message || 'Failed to calculate ratios' 
+      error: error.message || 'Failed to calculate ratios',
+      debugLogs
     }, { status: 500 });
   }
 }
