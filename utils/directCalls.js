@@ -17,6 +17,7 @@ export async function getAddressMetricsDirect(chain, address) {
     console.log(`📊 Direct address metrics for ${address} on ${chain}`);
     
     if (!ethers.isAddress(address)) {
+      console.error(`❌ Invalid address format: ${address}`);
       throw new Error('Invalid Ethereum address');
     }
 
@@ -79,6 +80,7 @@ export async function getMinerStatsDirect(chain, address) {
     console.log(`⛏️ Direct miner stats for ${address} on ${chain}`);
     
     if (!ethers.isAddress(address)) {
+      console.error(`❌ Invalid address format: ${address}`);
       throw new Error('Invalid Ethereum address');
     }
 

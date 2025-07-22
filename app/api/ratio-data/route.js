@@ -82,10 +82,13 @@ export async function POST(req) {
       // Get all addresses with active miners, ignoring existing ratios
       const allAddresses = await getAllAddressesWithMiners(chain);
       console.log(`🔍 Found ${allAddresses.length} total addresses with active miners`);
+      console.log(`📝 Sample addresses: ${allAddresses.slice(0, 5).join(', ')}`);
       addressesToProcess = allAddresses;
     } else {
       // Get only addresses that need ratio calculation (no cached ratios)
       addressesToProcess = await getAddressesNeedingRatioCalculation(chain, batchSize);
+      console.log(`🔍 Found ${addressesToProcess.length} addresses needing ratio calculation`);
+      console.log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
     }
     
     if (addressesToProcess.length === 0) {
@@ -123,11 +126,14 @@ export async function POST(req) {
       // Process batch in parallel
       const promises = batch.map(async (address) => {
         try {
+          console.log(`   🔍 ${address}: Fetching metrics and miner stats...`);
           // Fetch both metrics and miner stats in parallel using direct calls
           const [metrics, minerStats] = await Promise.all([
             getAddressMetricsDirect(chain, address),
             getMinerStatsDirect(chain, address)
           ]);
+          
+          console.log(`   📥 ${address}: Metrics result: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats result: ${minerStats ? 'SUCCESS' : 'FAILED'}`);
           
           if (metrics && minerStats) {
             const deposits = parseFloat(metrics.deposits) || 0;
@@ -140,6 +146,8 @@ export async function POST(req) {
               console.log(`   ⚠️  ${address}: No active miners (${totalMiners} total, ${activeMiners} active) - skipping`);
               return false;
             }
+            
+            console.log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals`);
             
             // Calculate true ratio: withdrawals / deposits
             let ratio = 0;
