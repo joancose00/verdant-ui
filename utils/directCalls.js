@@ -25,7 +25,13 @@ export async function getAddressMetricsDirect(chain, address) {
     const storageAddress = isBase ? process.env.STORAGE_CONTRACT_BASE : process.env.STORAGE_CONTRACT_ABS;
     const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
 
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    // Create fresh provider for each call to avoid any caching issues
+    // Add random delay to prevent concurrent call conflicts
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+    const provider = new ethers.JsonRpcProvider(rpcUrl, null, { 
+      staticNetwork: true,
+      batchMaxCount: 1  // Disable batching to prevent call mixing
+    });
     const storageCore = new ethers.Contract(storageAddress, STORAGE_CORE_ABI, provider);
 
     // Fetch with retry logic
@@ -34,8 +40,10 @@ export async function getAddressMetricsDirect(chain, address) {
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        console.log(`   📋 Calling deposits(${address}) and withdrawals(${address}) on ${storageAddress}`);
         deposits = await storageCore.deposits(address);
         withdrawals = await storageCore.withdrawals(address);
+        console.log(`   📋 Raw contract response: deposits=${deposits.toString()}, withdrawals=${withdrawals.toString()}`);
         break;
       } catch (error) {
         console.error(`Direct metrics attempt ${attempt}/${maxRetries} failed:`, error.message);
@@ -88,7 +96,12 @@ export async function getMinerStatsDirect(chain, address) {
     const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
     const minerContract = isBase ? process.env.MINER_CONTRACT_BASE : process.env.MINER_CONTRACT_ABS;
 
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    // Add random delay to prevent concurrent call conflicts
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+    const provider = new ethers.JsonRpcProvider(rpcUrl, null, { 
+      staticNetwork: true,
+      batchMaxCount: 1  // Disable batching to prevent call mixing
+    });
     const minerLogic = new ethers.Contract(minerContract, MINER_LOGIC_ABI, provider);
 
     // Fetch with retry logic
@@ -97,7 +110,12 @@ export async function getMinerStatsDirect(chain, address) {
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        console.log(`   🔗 Calling getPlayerMiners(${address}) on ${minerContract}`);
         minerData = await minerLogic.getPlayerMiners(address);
+        console.log(`   🔗 Raw miner data: ${minerData[0].length} miners found`);
+        if (minerData[0].length > 0) {
+          console.log(`   🔗 First miner: id=${minerData[0][0]}, lives=${minerData[3][0]}, shields=${minerData[4][0]}`);
+        }
         break;
       } catch (error) {
         console.error(`Direct miner stats attempt ${attempt}/${maxRetries} failed:`, error.message);
@@ -147,6 +165,12 @@ export async function getMinerStatsDirect(chain, address) {
     });
 
     console.log(`✅ Direct miner stats success: ${minerIds.length} total, ${activeMinersCount} active`);
+    if (minerIds.length > 0 && activeMinersCount === 0) {
+      console.log(`⚠️ WARNING: ${address} has ${minerIds.length} miners but 0 active - checking first few:`);
+      for (let i = 0; i < Math.min(3, minerIds.length); i++) {
+        console.log(`   Miner ${minerIds[i]}: lives=${lives[i]}, shields=${shields[i]} -> active=${lives[i] > 0 && shields[i] > 0}`);
+      }
+    }
 
     return {
       totalMiners: minerIds.length,

@@ -3,7 +3,11 @@ import {
   getCachedRatios,
   storeRatioData,
   getAddressesNeedingRatioCalculation,
-  getAllAddressesWithMiners
+  getCurrentRatioAddresses,
+  getAllAddressesWithActiveMiners,
+  getAllAddressesWithAnyMiners,
+  getMinerSellData,
+  debugLPTransactionData
 } from '../../../lib/database/operations.js';
 import { getAddressMetricsDirect, getMinerStatsDirect } from '../../../utils/directCalls.js';
 
@@ -83,16 +87,28 @@ export async function POST(req) {
 
     const startTime = Date.now();
 
+    // Debug LP transaction data first
+    await debugLPTransactionData(chain);
+
     // Get addresses to process based on scan type
     let addressesToProcess;
-    if (scanType === 'scanAll') {
-      // Get all addresses with active miners, ignoring existing ratios
-      const allAddresses = await getAllAddressesWithMiners(chain);
-      log(`🔍 Found ${allAddresses.length} total addresses with active miners`);
-      log(`📝 Sample addresses: ${allAddresses.slice(0, 5).join(', ')}`);
-      addressesToProcess = allAddresses;
+    if (scanType === 'refreshCurrent') {
+      // Refresh only addresses currently shown in the filtered results
+      addressesToProcess = await getCurrentRatioAddresses(chain, 100);
+      log(`🔍 Found ${addressesToProcess.length} addresses in current filtered results`);
+      log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
+    } else if (scanType === 'scanAllActive') {
+      // Get all addresses with active miners
+      addressesToProcess = await getAllAddressesWithActiveMiners(chain);
+      log(`🔍 Found ${addressesToProcess.length} addresses with active miners`);
+      log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
+    } else if (scanType === 'scanEverything') {
+      // Get all addresses with any miners (active or inactive)
+      addressesToProcess = await getAllAddressesWithAnyMiners(chain);
+      log(`🔍 Found ${addressesToProcess.length} addresses with any miners`);
+      log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
     } else {
-      // Get only addresses that need ratio calculation (no cached ratios)
+      // Default: Get only addresses that need ratio calculation (no cached ratios)
       addressesToProcess = await getAddressesNeedingRatioCalculation(chain, batchSize);
       log(`🔍 Found ${addressesToProcess.length} addresses needing ratio calculation`);
       log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
@@ -121,9 +137,9 @@ export async function POST(req) {
     let ratiosErrors = 0;
     const totalAddresses = addressesToProcess.length;
 
-    // Process addresses in batches (balanced for Alchemy rate limits)
-    const rateBatchSize = chain === 'base' ? 5 : 6; // Moderate batch size to avoid rate limits
-    const rateDelay = chain === 'base' ? 400 : 350; // Balanced delays to respect compute units
+    // Process addresses in batches (conservative for Base to prevent corruption)
+    const rateBatchSize = chain === 'base' ? 1 : 6; // Process Base addresses one at a time to prevent corruption
+    const rateDelay = chain === 'base' ? 800 : 350; // Longer delays for Base to prevent RPC conflicts
     
     for (let i = 0; i < addressesToProcess.length; i += rateBatchSize) {
       const batch = addressesToProcess.slice(i, i + rateBatchSize);
@@ -134,40 +150,56 @@ export async function POST(req) {
       // Process batch in parallel
       const promises = batch.map(async (address) => {
         try {
-          log(`   🔍 ${address}: Fetching metrics and miner stats...`);
-          // Fetch both metrics and miner stats in parallel using direct calls
-          const [metrics, minerStats] = await Promise.all([
+          log(`   🔍 ${address}: Fetching metrics, miner stats, and sell data...`);
+          // Fetch metrics, miner stats, and sell data in parallel
+          const [metrics, minerStats, sellData] = await Promise.all([
             getAddressMetricsDirect(chain, address),
-            getMinerStatsDirect(chain, address)
+            getMinerStatsDirect(chain, address),
+            getMinerSellData(chain, address)
           ]);
           
-          log(`   📥 ${address}: Metrics result: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats result: ${minerStats ? 'SUCCESS' : 'FAILED'}`);
+          log(`   📥 ${address}: Metrics: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats: ${minerStats ? 'SUCCESS' : 'FAILED'}, SellData: ${sellData ? 'SUCCESS' : 'FAILED'}`);
           
           if (metrics && minerStats) {
             const deposits = parseFloat(metrics.deposits) || 0;
             const withdrawals = parseFloat(metrics.withdrawals) || 0;
             const activeMiners = parseInt(minerStats.activeMiners) || 0;
             const totalMiners = parseInt(minerStats.totalMiners) || 0;
+            const totalSells = sellData ? sellData.totalSells : 0;
             
-            // Only process addresses with active miners
-            if (activeMiners === 0) {
-              log(`   ⚠️  ${address}: No active miners (${totalMiners} total, ${activeMiners} active) - skipping`);
+            // Only skip if no miners at all (but allow addresses with inactive miners for sell data)
+            if (totalMiners === 0) {
+              log(`   ⚠️  ${address}: No miners at all - skipping`);
               return false;
             }
             
-            log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals`);
+            log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals, ${totalSells} sells`);
             
-            // Calculate true ratio: withdrawals / deposits
-            let ratio = 0;
+            if (sellData && sellData.totalTransactions > 0) {
+              log(`   💰 ${address}: Found ${sellData.totalTransactions} sell transactions, ${sellData.directSales} direct, ${sellData.tracedToMiner} traced`);
+            } else {
+              log(`   ⚠️  ${address}: No sell transactions found (sellData: ${JSON.stringify(sellData)})`);
+            }
+            
+            // Calculate withdrawal ratio: withdrawals / deposits
+            let withdrawalRatio = 0;
             if (deposits > 0) {
-              ratio = withdrawals / deposits;
+              withdrawalRatio = withdrawals / deposits;
             } else if (withdrawals > 0) {
-              ratio = 999; // Very high ratio for addresses with withdrawals but no deposits
+              withdrawalRatio = 999; // Very high ratio for addresses with withdrawals but no deposits
             }
 
-            // Store ratio data with miner counts
-            await storeRatioData(chain, address, deposits, withdrawals, ratio, totalMiners, activeMiners);
-            console.log(`   ✅ ${address}: ${ratio.toFixed(4)}x (${withdrawals}/${deposits}) - ${activeMiners}/${totalMiners} active miners`);
+            // Calculate sell ratio: total sells / deposits
+            let sellRatio = 0;
+            if (deposits > 0) {
+              sellRatio = totalSells / deposits;
+            } else if (totalSells > 0) {
+              sellRatio = 999; // Very high ratio for addresses with sells but no deposits
+            }
+
+            // Store ratio data with both ratios
+            await storeRatioData(chain, address, deposits, withdrawals, withdrawalRatio, totalMiners, activeMiners, totalSells, sellRatio);
+            console.log(`   ✅ ${address}: Withdrawal ${withdrawalRatio.toFixed(4)}x (${withdrawals}/${deposits}), Sell ${sellRatio.toFixed(4)}x (${totalSells}/${deposits}) - ${activeMiners}/${totalMiners} active miners`);
             return true;
           } else {
             const failedService = !metrics ? 'metrics' : 'miner stats';

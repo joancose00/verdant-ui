@@ -38,7 +38,7 @@ async function resetRatioData() {
     const remainingRatios = await sql`SELECT COUNT(*) as count FROM address_ratios`;
     console.log(`📊 Remaining ratios in table: ${remainingRatios[0].count}`);
     
-    console.log('\n🎉 Hall of Shame database reset completed successfully!');
+    console.log('\n🎉 Ratio of Shame database reset completed successfully!');
     console.log('   Next "Update Ratios" will calculate fresh ratios with the fixed logic.');
     
   } catch (error) {

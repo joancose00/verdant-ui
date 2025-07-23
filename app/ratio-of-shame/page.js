@@ -18,22 +18,29 @@ export default function GlobalRatioOfShamePage() {
     minWithdrawals: '',
     minDeposits: '',
     minRatio: '',
+    minSells: '',
+    minSellRatio: '',
     minActiveMiners: '',
     minTotalMiners: '',
     chainFilter: 'all' // 'all', 'abstract', 'base'
   });
+  
+  // Sort state
+  const [sortBy, setSortBy] = useState('withdrawalRatio'); // 'withdrawalRatio' or 'sellRatio'
 
-  // Load data from both chains on component mount
+  // Load cached data from both chains on component mount
   useEffect(() => {
-    loadAllRatioData();
+    loadCachedData();
   }, []);
 
-  const loadAllRatioData = async () => {
+  const loadCachedData = async () => {
     setError('');
     setLoading(true);
 
     try {
-      // Fetch data from both chains in parallel
+      console.log('📋 Loading cached ratio data for both chains...');
+      
+      // Load cached data from both chains via GET requests
       const [abstractResponse, baseResponse] = await Promise.all([
         fetch('/api/ratio-data?chain=abstract'),
         fetch('/api/ratio-data?chain=base')
@@ -65,14 +72,82 @@ export default function GlobalRatioOfShamePage() {
         base: baseResult.lastUpdated
       });
 
+      console.log(`✅ Cached data loaded - Abstract: ${abstractWithChain.length} addresses, Base: ${baseWithChain.length} addresses`);
+
     } catch (err) {
+      console.error('Global data load error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Combine and filter data
+  const refreshAllRatioData = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      console.log('🔄 Refreshing ratio data for both chains...');
+      
+      // Refresh current displayed data for both chains via POST requests
+      const [abstractResponse, baseResponse] = await Promise.all([
+        fetch('/api/ratio-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chain: 'abstract', 
+            scanType: 'refreshCurrent', 
+            batchSize: 50 
+          })
+        }),
+        fetch('/api/ratio-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chain: 'base', 
+            scanType: 'refreshCurrent', 
+            batchSize: 50 
+          })
+        })
+      ]);
+
+      const [abstractResult, baseResult] = await Promise.all([
+        abstractResponse.json(),
+        baseResponse.json()
+      ]);
+
+      if (abstractResult.error) console.error('Abstract error:', abstractResult.error);
+      if (baseResult.error) console.error('Base error:', baseResult.error);
+
+      // Add chain info to each item
+      const abstractWithChain = (abstractResult.ratioData || []).map(item => ({
+        ...item,
+        chain: 'abstract'
+      }));
+
+      const baseWithChain = (baseResult.ratioData || []).map(item => ({
+        ...item,
+        chain: 'base'
+      }));
+
+      setAbstractData(abstractWithChain);
+      setBaseData(baseWithChain);
+      setLastUpdated({
+        abstract: abstractResult.lastUpdated,
+        base: baseResult.lastUpdated
+      });
+
+      console.log(`✅ Refresh complete - Abstract: ${abstractWithChain.length} addresses, Base: ${baseWithChain.length} addresses`);
+
+    } catch (err) {
+      console.error('Global refresh error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Combine, filter and sort data
   const combinedData = [...abstractData, ...baseData]
     .filter(item => {
       // Chain filter
@@ -82,18 +157,28 @@ export default function GlobalRatioOfShamePage() {
       if (filters.minWithdrawals && parseFloat(item.totalWithdrawals) < parseFloat(filters.minWithdrawals)) return false;
       if (filters.minDeposits && parseFloat(item.totalDeposits) < parseFloat(filters.minDeposits)) return false;
       if (filters.minRatio && parseFloat(item.ratio) < parseFloat(filters.minRatio)) return false;
+      if (filters.minSells && parseFloat(item.totalSells || 0) < parseFloat(filters.minSells)) return false;
+      if (filters.minSellRatio && parseFloat(item.sellRatio || 0) < parseFloat(filters.minSellRatio)) return false;
       if (filters.minActiveMiners && parseInt(item.activeMiners) < parseInt(filters.minActiveMiners)) return false;
       if (filters.minTotalMiners && parseInt(item.totalMiners) < parseInt(filters.minTotalMiners)) return false;
       
       return true;
     })
-    .sort((a, b) => parseFloat(b.ratio) - parseFloat(a.ratio));
+    .sort((a, b) => {
+      if (sortBy === 'withdrawalRatio') {
+        return parseFloat(b.ratio) - parseFloat(a.ratio);
+      } else {
+        return parseFloat(b.sellRatio || 0) - parseFloat(a.sellRatio || 0);
+      }
+    });
 
   const clearFilters = () => {
     setFilters({
       minWithdrawals: '',
       minDeposits: '',
       minRatio: '',
+      minSells: '',
+      minSellRatio: '',
       minActiveMiners: '',
       minTotalMiners: '',
       chainFilter: 'all'
@@ -114,6 +199,20 @@ export default function GlobalRatioOfShamePage() {
     return 'Acceptable';
   };
 
+  const getSellRatioColor = (ratio) => {
+    if (ratio >= 5.0) return '#dc2626'; // Red for very high sell ratios
+    if (ratio >= 3.0) return '#ea580c'; // Orange for high sell ratios  
+    if (ratio >= 1.5) return '#ca8a04'; // Yellow for medium sell ratios
+    return '#059669'; // Green for low sell ratios
+  };
+
+  const getSellRatioLabel = (ratio) => {
+    if (ratio >= 5.0) return 'EXTREME DUMPING';
+    if (ratio >= 3.0) return 'High Dumping';
+    if (ratio >= 1.5) return 'Moderate Dumping';
+    return 'Acceptable';
+  };
+
   const getChainColor = (chain) => {
     return chain === 'abstract' ? '#10b981' : '#3b82f6';
   };
@@ -128,6 +227,23 @@ export default function GlobalRatioOfShamePage() {
     localStorage.setItem('selectedAddress', address);
     localStorage.setItem('selectedTab', '1'); // Wallet Query tab index
     router.push(`/${chain}`);
+  };
+
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      // You could add a toast notification here if desired
+      console.log(`${type} copied to clipboard: ${text}`);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
   };
 
   return (
@@ -164,8 +280,49 @@ export default function GlobalRatioOfShamePage() {
         </h1>
         
         <p style={{ color: '#a3a3a3', fontSize: '18px', margin: 0 }}>
-          Combined Hall of Shame across Abstract and Base networks
+          Combined Ratio of Shame across Abstract and Base networks
         </p>
+      </div>
+
+      {/* Information Panel */}
+      <div style={{
+        background: '#1a1a2e',
+        padding: '20px',
+        borderRadius: '12px',
+        border: '1px solid #16213e',
+        marginBottom: '20px'
+      }}>
+        <h3 style={{ color: '#ffffff', margin: '0 0 15px 0', fontSize: '16px' }}>📊 Understanding Ratio of Shame</h3>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '15px' }}>
+          <div>
+            <h4 style={{ color: '#dc2626', margin: '0 0 8px 0', fontSize: '14px' }}>🔴 Withdrawal Ratio</h4>
+            <p style={{ color: '#a3a3a3', fontSize: '13px', margin: 0, lineHeight: '1.4' }}>
+              <strong>Withdrawals ÷ Deposits</strong><br/>
+              Tracks VDNT claimed through game refinement. This is what the game uses to calculate shield costs. Higher ratios = more expensive shields.
+            </p>
+          </div>
+          
+          <div>
+            <h4 style={{ color: '#f59e0b', margin: '0 0 8px 0', fontSize: '14px' }}>🟡 Sell Ratio</h4>
+            <p style={{ color: '#a3a3a3', fontSize: '13px', margin: 0, lineHeight: '1.4' }}>
+              <strong>Market Sells ÷ Deposits</strong><br/>
+              Traces actual market sell orders back to miner owners through blockchain analysis. Shows real dumping behavior regardless of refinement claims. Note that some players have multiple accounts and may be consolidating funds before selling, resulting in sell amounts that far exceed the deposits on record for that account.
+            </p>
+          </div>
+        </div>
+        
+        <div style={{ 
+          padding: '12px', 
+          background: '#0f172a', 
+          borderRadius: '6px', 
+          border: '1px solid #1e293b'
+        }}>
+          <h4 style={{ color: '#10b981', margin: '0 0 6px 0', fontSize: '13px' }}>🔍 Filtering Criteria</h4>
+          <p style={{ color: '#64748b', fontSize: '12px', margin: 0, lineHeight: '1.3' }}>
+            Only shows addresses with: <strong>Active miners</strong> + <strong>Either withdrawal ratio OR sell ratio &gt; 0</strong> + <strong>Some activity (deposits/withdrawals/sells)</strong>
+          </p>
+        </div>
       </div>
 
       {/* Stats Panel */}
@@ -178,7 +335,7 @@ export default function GlobalRatioOfShamePage() {
       }}>
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
-            onClick={loadAllRatioData}
+            onClick={refreshAllRatioData}
             disabled={loading}
             style={{
               padding: '10px 20px',
@@ -210,9 +367,12 @@ export default function GlobalRatioOfShamePage() {
             </div>
 
             <div>
-              <span style={{ color: '#dc2626', fontSize: '12px' }}>Total Combined</span>
+              <span style={{ color: '#dc2626', fontSize: '12px' }}>Total Entries</span>
               <div style={{ color: '#ffffff', fontWeight: 'bold', fontSize: '18px' }}>
                 {formatNumber(combinedData.length)}
+              </div>
+              <div style={{ color: '#6b7280', fontSize: '10px' }}>
+                (some addresses appear on both chains)
               </div>
             </div>
           </div>
@@ -392,6 +552,51 @@ export default function GlobalRatioOfShamePage() {
               }}
             />
           </div>
+
+          {/* Minimum Sells Filter */}
+          <div>
+            <label style={{ color: '#a3a3a3', fontSize: '12px', display: 'block', marginBottom: '4px' }}>
+              Min Sells
+            </label>
+            <input
+              type="number"
+              value={filters.minSells}
+              onChange={(e) => setFilters({ ...filters, minSells: e.target.value })}
+              placeholder="e.g. 1000"
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '6px',
+                color: '#ffffff',
+                fontSize: '14px'
+              }}
+            />
+          </div>
+
+          {/* Minimum Sell Ratio Filter */}
+          <div>
+            <label style={{ color: '#a3a3a3', fontSize: '12px', display: 'block', marginBottom: '4px' }}>
+              Min Sell Ratio
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={filters.minSellRatio}
+              onChange={(e) => setFilters({ ...filters, minSellRatio: e.target.value })}
+              placeholder="e.g. 2.0"
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '6px',
+                color: '#ffffff',
+                fontSize: '14px'
+              }}
+            />
+          </div>
         </div>
 
         {/* Active Filter Summary */}
@@ -409,6 +614,84 @@ export default function GlobalRatioOfShamePage() {
           </div>
         )}
       </div>
+
+      {/* Progress Bar */}
+      {loading && (
+        <div style={{
+          background: '#1a1a1a',
+          padding: '20px',
+          borderRadius: '12px',
+          border: '1px solid #333',
+          marginBottom: '20px'
+        }}>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 'bold' }}>
+                Refreshing Global Ratio Data
+              </span>
+            </div>
+            
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: '#333',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                height: '100%',
+                width: '40%',
+                backgroundColor: '#10b981',
+                borderRadius: '4px',
+                background: 'linear-gradient(90deg, #10b981, #059669)',
+                animation: 'slide 1.5s ease-in-out infinite'
+              }} />
+            </div>
+          </div>
+          
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <div style={{
+              width: '6px',
+              height: '6px',
+              backgroundColor: '#10b981',
+              borderRadius: '50%',
+              animation: 'pulse 1.5s ease-in-out infinite'
+            }} />
+            <span style={{ color: '#a3a3a3', fontSize: '14px' }}>
+              Processing both Abstract and Base chains...
+            </span>
+          </div>
+          
+          <style jsx>{`
+            @keyframes pulse {
+              0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+              }
+              50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+              }
+            }
+            @keyframes slide {
+              0% {
+                transform: translateX(-100%);
+              }
+              100% {
+                transform: translateX(350%);
+              }
+            }
+          `}</style>
+        </div>
+      )}
 
       {/* Error Display */}
       {error && (
@@ -434,8 +717,28 @@ export default function GlobalRatioOfShamePage() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3 style={{ color: '#ffffff', margin: 0 }}>
-              Global Hall of Shame ({formatNumber(combinedData.length)} addresses)
+              Global Ratio of Shame ({formatNumber(combinedData.length)} addresses)
             </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={{ color: '#ffffff', fontSize: '14px' }}>
+                Sort by:
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  background: '#1a1a1a',
+                  border: '1px solid #333',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontSize: '14px'
+                }}
+              >
+                <option value="withdrawalRatio">Withdrawal Ratio</option>
+                <option value="sellRatio">Sell Ratio</option>
+              </select>
+            </div>
           </div>
 
           <div style={{ 
@@ -488,22 +791,56 @@ export default function GlobalRatioOfShamePage() {
                 </div>
 
                 {/* Address */}
-                <div 
-                  onClick={() => handleAddressClick(item.address, item.chain)}
-                  style={{ 
-                    fontFamily: 'monospace', 
-                    fontSize: '14px', 
-                    color: '#ffffff',
-                    marginTop: '16px',
-                    marginBottom: '12px',
-                    wordBreak: 'break-all',
-                    cursor: 'pointer',
-                    transition: 'color 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => e.target.style.color = getChainColor(item.chain)}
-                  onMouseLeave={(e) => e.target.style.color = '#ffffff'}
-                >
-                  {item.address}
+                <div style={{ 
+                  marginTop: '16px',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <div 
+                    onClick={() => handleAddressClick(item.address, item.chain)}
+                    style={{ 
+                      fontFamily: 'monospace', 
+                      fontSize: '14px', 
+                      color: '#ffffff',
+                      wordBreak: 'break-all',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease',
+                      flex: 1
+                    }}
+                    onMouseEnter={(e) => e.target.style.color = getChainColor(item.chain)}
+                    onMouseLeave={(e) => e.target.style.color = '#ffffff'}
+                  >
+                    {item.address}
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyToClipboard(item.address, 'Address');
+                    }}
+                    style={{
+                      background: 'none',
+                      border: '1px solid #444',
+                      borderRadius: '4px',
+                      color: '#aaa',
+                      cursor: 'pointer',
+                      padding: '4px 6px',
+                      fontSize: '12px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#333';
+                      e.target.style.color = '#fff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = 'transparent';
+                      e.target.style.color = '#aaa';
+                    }}
+                    title="Copy address"
+                  >
+                    📋
+                  </button>
                 </div>
 
                 {/* Metrics */}
@@ -523,36 +860,70 @@ export default function GlobalRatioOfShamePage() {
                   </div>
 
                   <div>
+                    <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Total Sells</span>
+                    <div style={{ color: '#f59e0b', fontWeight: 'bold' }}>
+                      {formatNumber(item.totalSells || 0)}
+                    </div>
+                  </div>
+
+                  <div>
                     <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Active Miners</span>
                     <div style={{ color: '#ffffff', fontWeight: 'bold' }}>
                       {formatNumber(item.activeMiners || 0)}
                     </div>
                   </div>
-                  
-                  <div>
-                    <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Total Miners</span>
-                    <div style={{ color: '#a3a3a3', fontWeight: 'bold' }}>
-                      {formatNumber(item.totalMiners || 0)}
-                    </div>
-                  </div>
                 </div>
 
-                {/* Ratio */}
-                <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                {/* Ratios */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', textAlign: 'center', padding: '8px 0' }}>
+                  {/* Withdrawal Ratio */}
                   <div style={{ 
-                    fontSize: '24px', 
-                    fontWeight: 'bold', 
-                    color: getRatioColor(item.ratio),
-                    marginBottom: '4px'
+                    padding: '8px',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '6px',
+                    border: `1px solid ${getRatioColor(item.ratio)}`
                   }}>
-                    {formatRatio(item.ratio)}x
+                    <div style={{ color: '#a3a3a3', fontSize: '10px', marginBottom: '4px' }}>WITHDRAWAL RATIO</div>
+                    <div style={{ 
+                      fontSize: '18px', 
+                      fontWeight: 'bold', 
+                      color: getRatioColor(item.ratio),
+                      marginBottom: '2px'
+                    }}>
+                      {formatRatio(item.ratio)}x
+                    </div>
+                    <div style={{ 
+                      fontSize: '10px', 
+                      color: getRatioColor(item.ratio),
+                      fontWeight: 'bold'
+                    }}>
+                      {getRatioLabel(item.ratio)}
+                    </div>
                   </div>
+
+                  {/* Sell Ratio */}
                   <div style={{ 
-                    fontSize: '12px', 
-                    color: getRatioColor(item.ratio),
-                    fontWeight: 'bold'
+                    padding: '8px',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '6px',
+                    border: `1px solid ${getSellRatioColor(item.sellRatio || 0)}`
                   }}>
-                    {getRatioLabel(item.ratio)}
+                    <div style={{ color: '#a3a3a3', fontSize: '10px', marginBottom: '4px' }}>SELL RATIO</div>
+                    <div style={{ 
+                      fontSize: '18px', 
+                      fontWeight: 'bold', 
+                      color: getSellRatioColor(item.sellRatio || 0),
+                      marginBottom: '2px'
+                    }}>
+                      {formatRatio(item.sellRatio || 0)}x
+                    </div>
+                    <div style={{ 
+                      fontSize: '10px', 
+                      color: getSellRatioColor(item.sellRatio || 0),
+                      fontWeight: 'bold'
+                    }}>
+                      {getSellRatioLabel(item.sellRatio || 0)}
+                    </div>
                   </div>
                 </div>
               </div>

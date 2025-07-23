@@ -16,9 +16,14 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
     minWithdrawals: '',
     minDeposits: '',
     minRatio: '',
+    minSells: '',
+    minSellRatio: '',
     minActiveMiners: '',
     minTotalMiners: ''
   });
+  
+  // Sort state
+  const [sortBy, setSortBy] = useState('withdrawalRatio'); // 'withdrawalRatio' or 'sellRatio'
 
   // Load cached ratio data on component mount and chain change
   useEffect(() => {
@@ -102,21 +107,63 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
     return 'Acceptable';
   };
 
-  // Filter the ratio data based on filter values
-  const filteredRatioData = ratioData.filter(item => {
-    if (filters.minWithdrawals && parseFloat(item.totalWithdrawals) < parseFloat(filters.minWithdrawals)) return false;
-    if (filters.minDeposits && parseFloat(item.totalDeposits) < parseFloat(filters.minDeposits)) return false;
-    if (filters.minRatio && parseFloat(item.ratio) < parseFloat(filters.minRatio)) return false;
-    if (filters.minActiveMiners && parseInt(item.activeMiners) < parseInt(filters.minActiveMiners)) return false;
-    if (filters.minTotalMiners && parseInt(item.totalMiners) < parseInt(filters.minTotalMiners)) return false;
-    return true;
-  });
+  const getSellRatioColor = (ratio) => {
+    if (ratio >= 5.0) return '#dc2626'; // Red for very high sell ratios
+    if (ratio >= 3.0) return '#ea580c'; // Orange for high sell ratios  
+    if (ratio >= 1.5) return '#ca8a04'; // Yellow for medium sell ratios
+    return '#059669'; // Green for low sell ratios
+  };
+
+  const getSellRatioLabel = (ratio) => {
+    if (ratio >= 5.0) return 'EXTREME DUMPING';
+    if (ratio >= 3.0) return 'High Dumping';
+    if (ratio >= 1.5) return 'Moderate Dumping';
+    return 'Acceptable';
+  };
+
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      console.log(`${type} copied to clipboard: ${text}`);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
+  };
+
+  // Filter and sort the ratio data
+  const filteredAndSortedRatioData = ratioData
+    .filter(item => {
+      if (filters.minWithdrawals && parseFloat(item.totalWithdrawals) < parseFloat(filters.minWithdrawals)) return false;
+      if (filters.minDeposits && parseFloat(item.totalDeposits) < parseFloat(filters.minDeposits)) return false;
+      if (filters.minRatio && parseFloat(item.ratio) < parseFloat(filters.minRatio)) return false;
+      if (filters.minSells && parseFloat(item.totalSells || 0) < parseFloat(filters.minSells)) return false;
+      if (filters.minSellRatio && parseFloat(item.sellRatio || 0) < parseFloat(filters.minSellRatio)) return false;
+      if (filters.minActiveMiners && parseInt(item.activeMiners) < parseInt(filters.minActiveMiners)) return false;
+      if (filters.minTotalMiners && parseInt(item.totalMiners) < parseInt(filters.minTotalMiners)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'withdrawalRatio') {
+        return parseFloat(b.ratio) - parseFloat(a.ratio);
+      } else {
+        return parseFloat(b.sellRatio || 0) - parseFloat(a.sellRatio || 0);
+      }
+    });
 
   const clearFilters = () => {
     setFilters({
       minWithdrawals: '',
       minDeposits: '',
       minRatio: '',
+      minSells: '',
+      minSellRatio: '',
       minActiveMiners: '',
       minTotalMiners: ''
     });
@@ -124,6 +171,47 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
 
   return (
     <div>
+      {/* Information Panel */}
+      <div style={{
+        background: '#1a1a2e',
+        padding: '20px',
+        borderRadius: '12px',
+        border: '1px solid #16213e',
+        marginBottom: '20px'
+      }}>
+        <h3 style={{ color: '#ffffff', margin: '0 0 15px 0', fontSize: '16px' }}>📊 Understanding Ratio of Shame</h3>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '15px' }}>
+          <div>
+            <h4 style={{ color: '#dc2626', margin: '0 0 8px 0', fontSize: '14px' }}>🔴 Withdrawal Ratio</h4>
+            <p style={{ color: '#a3a3a3', fontSize: '13px', margin: 0, lineHeight: '1.4' }}>
+              <strong>Withdrawals ÷ Deposits</strong><br/>
+              Tracks VDNT claimed through game refinement. This is what the game uses to calculate shield maintenance costs. Higher ratios = more expensive shields.
+            </p>
+          </div>
+          
+          <div>
+            <h4 style={{ color: '#f59e0b', margin: '0 0 8px 0', fontSize: '14px' }}>🟡 Sell Ratio</h4>
+            <p style={{ color: '#a3a3a3', fontSize: '13px', margin: 0, lineHeight: '1.4' }}>
+              <strong>Market Sells ÷ Deposits</strong><br/>
+              Traces actual market sell orders back to miner owners through blockchain analysis. Shows real dumping behavior regardless of refinement claims. Note that some players have multiple accounts and may be consolidating funds before selling, resulting in sell amounts that far exceed the deposits on record for that account.
+            </p>
+          </div>
+        </div>
+        
+        <div style={{ 
+          padding: '12px', 
+          background: '#0f172a', 
+          borderRadius: '6px', 
+          border: '1px solid #1e293b'
+        }}>
+          <h4 style={{ color: '#10b981', margin: '0 0 6px 0', fontSize: '13px' }}>🔍 Filtering Criteria</h4>
+          <p style={{ color: '#64748b', fontSize: '12px', margin: 0, lineHeight: '1.3' }}>
+            Only shows addresses with: <strong>Active miners</strong> + <strong>Either withdrawal ratio OR sell ratio &gt; 0</strong> + <strong>Some activity (deposits/withdrawals/sells)</strong>
+          </p>
+        </div>
+      </div>
+
       {/* Control Panel */}
       <div style={{
         background: '#262626',
@@ -132,39 +220,56 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
         border: '1px solid #333',
         marginBottom: '30px'
       }}>
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '15px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '15px' }}>
           <button
-            onClick={() => scanForMoreRatios('update')}
+            onClick={() => scanForMoreRatios('refreshCurrent')}
             disabled={loading}
             style={{
-              padding: '10px 20px',
+              padding: '10px 18px',
+              background: loading ? '#404040' : '#10b981',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: 'bold',
+              cursor: loading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {loading ? 'Refreshing...' : 'Refresh Current List'}
+          </button>
+
+          <button
+            onClick={() => scanForMoreRatios('scanAllActive')}
+            disabled={loading}
+            style={{
+              padding: '10px 18px',
               background: loading ? '#404040' : '#dc2626',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              fontSize: '14px',
+              fontSize: '13px',
               fontWeight: 'bold',
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? 'Calculating...' : 'Update Ratios'}
+            {loading ? 'Calculating...' : 'Scan All Active'}
           </button>
 
           <button
-            onClick={() => scanForMoreRatios('scanAll')}
+            onClick={() => scanForMoreRatios('scanEverything')}
             disabled={loading}
             style={{
-              padding: '10px 20px',
+              padding: '10px 18px',
               background: loading ? '#404040' : '#ea580c',
               color: 'white',
               border: 'none',
-              borderRadius: '6px',
-              fontSize: '14px',
+              borderRadius: '6px',  
+              fontSize: '13px',
               fontWeight: 'bold',
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? 'Calculating...' : 'Scan All Addresses'}
+            {loading ? 'Calculating...' : 'Scan Everything'}
           </button>
 
           {lastUpdated && (
@@ -181,9 +286,10 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
           border: '1px solid #333',
           marginBottom: '0'
         }}>
-          <p style={{ margin: 0, color: '#a3a3a3', fontSize: '14px' }}>
-            <strong style={{ color: '#dc2626' }}>Update Ratios:</strong> Calculate ratios for newly discovered addresses only<br/>
-            <strong style={{ color: '#ea580c' }}>Scan All Addresses:</strong> Recalculate ratios for ALL addresses with active miners (slower)
+          <p style={{ margin: 0, color: '#a3a3a3', fontSize: '13px' }}>
+            <strong style={{ color: '#10b981' }}>Refresh Current List:</strong> Update ratios for addresses currently shown (fastest)<br/>
+            <strong style={{ color: '#dc2626' }}>Scan All Active:</strong> Find and calculate ratios for all addresses with active miners<br/>
+            <strong style={{ color: '#ea580c' }}>Scan Everything:</strong> Process ALL addresses with miners, active or dead (slowest)
           </p>
         </div>
       </div>
@@ -197,21 +303,41 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
         marginBottom: '30px'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ color: '#ffffff', margin: 0, fontSize: '16px' }}>🔧 Filter Options</h3>
-          <button
-            onClick={clearFilters}
-            style={{
-              padding: '6px 12px',
-              background: '#404040',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            Clear Filters
-          </button>
+          <h3 style={{ color: '#ffffff', margin: 0, fontSize: '16px' }}>🔧 Filter & Sort Options</h3>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ffffff', fontSize: '14px' }}>
+              Sort by:
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  background: '#1a1a1a',
+                  border: '1px solid #333',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontSize: '14px'
+                }}
+              >
+                <option value="withdrawalRatio">Withdrawal Ratio</option>
+                <option value="sellRatio">Sell Ratio</option>
+              </select>
+            </label>
+            <button
+              onClick={clearFilters}
+              style={{
+                padding: '6px 12px',
+                background: '#404040',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              Clear Filters
+            </button>
+          </div>
         </div>
         
         <div style={{ 
@@ -266,7 +392,7 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
           {/* Minimum Ratio Filter */}
           <div>
             <label style={{ color: '#a3a3a3', fontSize: '12px', display: 'block', marginBottom: '4px' }}>
-              Min Ratio
+              Min Withdrawal Ratio
             </label>
             <input
               type="number"
@@ -274,6 +400,51 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
               value={filters.minRatio}
               onChange={(e) => setFilters({ ...filters, minRatio: e.target.value })}
               placeholder="e.g. 1.5"
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '6px',
+                color: '#ffffff',
+                fontSize: '14px'
+              }}
+            />
+          </div>
+
+          {/* Minimum Sells Filter */}
+          <div>
+            <label style={{ color: '#a3a3a3', fontSize: '12px', display: 'block', marginBottom: '4px' }}>
+              Min Sells
+            </label>
+            <input
+              type="number"
+              value={filters.minSells}
+              onChange={(e) => setFilters({ ...filters, minSells: e.target.value })}
+              placeholder="e.g. 1000"
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '6px',
+                color: '#ffffff',
+                fontSize: '14px'
+              }}
+            />
+          </div>
+
+          {/* Minimum Sell Ratio Filter */}
+          <div>
+            <label style={{ color: '#a3a3a3', fontSize: '12px', display: 'block', marginBottom: '4px' }}>
+              Min Sell Ratio
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={filters.minSellRatio}
+              onChange={(e) => setFilters({ ...filters, minSellRatio: e.target.value })}
+              placeholder="e.g. 2.0"
               style={{
                 width: '100%',
                 padding: '8px',
@@ -341,7 +512,7 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
             fontSize: '12px',
             color: '#10b981'
           }}>
-            Showing {filteredRatioData.length} of {ratioData.length} addresses
+            Showing {filteredAndSortedRatioData.length} of {ratioData.length} addresses
           </div>
         )}
       </div>
@@ -514,11 +685,11 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3 style={{ color: '#ffffff', margin: 0 }}>
-              Hall of Shame ({filteredRatioData.length} {filteredRatioData.length !== ratioData.length && `of ${ratioData.length}`} addresses)
+              Ratio of Shame ({filteredAndSortedRatioData.length} {filteredAndSortedRatioData.length !== ratioData.length && `of ${ratioData.length}`} addresses)
             </h3>
           </div>
 
-          {filteredRatioData.length === 0 ? (
+          {filteredAndSortedRatioData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
               <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
               <h4 style={{ color: '#ffffff', marginBottom: '8px' }}>No Addresses Match Filters</h4>
@@ -532,7 +703,7 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
               gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', 
               gap: '16px'
             }}>
-              {filteredRatioData.map((item, index) => (
+              {filteredAndSortedRatioData.map((item, index) => (
               <div 
                 key={item.address}
                 style={{
@@ -559,22 +730,56 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
                 </div>
 
                 {/* Address */}
-                <div 
-                  onClick={() => onAddressSelect && onAddressSelect(item.address)}
-                  style={{ 
-                    fontFamily: 'monospace', 
-                    fontSize: '14px', 
-                    color: '#ffffff',
-                    marginTop: '8px',
-                    marginBottom: '12px',
-                    wordBreak: 'break-all',
-                    cursor: onAddressSelect ? 'pointer' : 'default',
-                    transition: 'color 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => { if(onAddressSelect) e.target.style.color = '#3b82f6' }}
-                  onMouseLeave={(e) => { if(onAddressSelect) e.target.style.color = '#ffffff' }}
-                >
-                  {item.address}
+                <div style={{ 
+                  marginTop: '8px',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <div 
+                    onClick={() => onAddressSelect && onAddressSelect(item.address)}
+                    style={{ 
+                      fontFamily: 'monospace', 
+                      fontSize: '14px', 
+                      color: '#ffffff',
+                      wordBreak: 'break-all',
+                      cursor: onAddressSelect ? 'pointer' : 'default',
+                      transition: 'color 0.2s ease',
+                      flex: 1
+                    }}
+                    onMouseEnter={(e) => { if(onAddressSelect) e.target.style.color = '#3b82f6' }}
+                    onMouseLeave={(e) => { if(onAddressSelect) e.target.style.color = '#ffffff' }}
+                  >
+                    {item.address}
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyToClipboard(item.address, 'Address');
+                    }}
+                    style={{
+                      background: 'none',
+                      border: '1px solid #444',
+                      borderRadius: '4px',
+                      color: '#aaa',
+                      cursor: 'pointer',
+                      padding: '4px 6px',
+                      fontSize: '12px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#333';
+                      e.target.style.color = '#fff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = 'transparent';
+                      e.target.style.color = '#aaa';
+                    }}
+                    title="Copy address"
+                  >
+                    📋
+                  </button>
                 </div>
 
                 {/* Metrics */}
@@ -594,36 +799,70 @@ export default function RatioOfShame({ chain, onAddressSelect }) {
                   </div>
 
                   <div>
+                    <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Total Sells</span>
+                    <div style={{ color: '#f59e0b', fontWeight: 'bold' }}>
+                      {formatNumber(item.totalSells || 0)}
+                    </div>
+                  </div>
+
+                  <div>
                     <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Active Miners</span>
                     <div style={{ color: '#ffffff', fontWeight: 'bold' }}>
                       {formatNumber(item.activeMiners || 0)}
                     </div>
                   </div>
-                  
-                  <div>
-                    <span style={{ color: '#a3a3a3', fontSize: '12px' }}>Total Miners</span>
-                    <div style={{ color: '#a3a3a3', fontWeight: 'bold' }}>
-                      {formatNumber(item.totalMiners || 0)}
-                    </div>
-                  </div>
                 </div>
 
-                {/* Ratio */}
-                <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                {/* Ratios */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', textAlign: 'center', padding: '8px 0' }}>
+                  {/* Withdrawal Ratio */}
                   <div style={{ 
-                    fontSize: '24px', 
-                    fontWeight: 'bold', 
-                    color: getRatioColor(item.ratio),
-                    marginBottom: '4px'
+                    padding: '8px',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '6px',
+                    border: `1px solid ${getRatioColor(item.ratio)}`
                   }}>
-                    {item.ratio}x
+                    <div style={{ color: '#a3a3a3', fontSize: '10px', marginBottom: '4px' }}>WITHDRAWAL RATIO</div>
+                    <div style={{ 
+                      fontSize: '18px', 
+                      fontWeight: 'bold', 
+                      color: getRatioColor(item.ratio),
+                      marginBottom: '2px'
+                    }}>
+                      {formatRatio(item.ratio)}x
+                    </div>
+                    <div style={{ 
+                      fontSize: '10px', 
+                      color: getRatioColor(item.ratio),
+                      fontWeight: 'bold'
+                    }}>
+                      {getRatioLabel(item.ratio)}
+                    </div>
                   </div>
+
+                  {/* Sell Ratio */}
                   <div style={{ 
-                    fontSize: '12px', 
-                    color: getRatioColor(item.ratio),
-                    fontWeight: 'bold'
+                    padding: '8px',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '6px',
+                    border: `1px solid ${getSellRatioColor(item.sellRatio || 0)}`
                   }}>
-                    {getRatioLabel(item.ratio)}
+                    <div style={{ color: '#a3a3a3', fontSize: '10px', marginBottom: '4px' }}>SELL RATIO</div>
+                    <div style={{ 
+                      fontSize: '18px', 
+                      fontWeight: 'bold', 
+                      color: getSellRatioColor(item.sellRatio || 0),
+                      marginBottom: '2px'
+                    }}>
+                      {formatRatio(item.sellRatio || 0)}x
+                    </div>
+                    <div style={{ 
+                      fontSize: '10px', 
+                      color: getSellRatioColor(item.sellRatio || 0),
+                      fontWeight: 'bold'
+                    }}>
+                      {getSellRatioLabel(item.sellRatio || 0)}
+                    </div>
                   </div>
                 </div>
               </div>

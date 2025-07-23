@@ -82,6 +82,22 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
     loadCachedAddresses();
   }, [chain]);
 
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      console.log(`${type} copied to clipboard: ${text}`);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
+  };
+
   return (
     <div style={{ 
       background: '#1a1a1a', 
@@ -341,25 +357,15 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
             {addresses.map((address, index) => (
               <div 
                 key={address}
-                onClick={() => onAddressSelect(address)}
                 style={{
                   padding: '12px',
                   background: '#262626',
                   borderRadius: '8px',
                   border: '1px solid #333',
-                  cursor: 'pointer',
                   transition: 'all 0.2s',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '10px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#333';
-                  e.target.style.borderColor = '#555';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#262626';
-                  e.target.style.borderColor = '#333';
                 }}
               >
                 <div style={{
@@ -377,14 +383,50 @@ export default function AddressExplorer({ chain, onAddressSelect }) {
                 }}>
                   {index + 1}
                 </div>
-                <span style={{ 
-                  color: '#ffffff',
-                  fontSize: '14px',
-                  fontFamily: 'monospace',
-                  wordBreak: 'break-all'
-                }}>
+                <div 
+                  onClick={() => onAddressSelect(address)}
+                  style={{ 
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    fontFamily: 'monospace',
+                    wordBreak: 'break-all',
+                    cursor: 'pointer',
+                    flex: 1,
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.target.style.color = '#ffffff'}
+                >
                   {address}
-                </span>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(address, 'Address');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: '1px solid #444',
+                    borderRadius: '4px',
+                    color: '#aaa',
+                    cursor: 'pointer',
+                    padding: '4px 6px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s ease',
+                    flexShrink: 0
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = '#333';
+                    e.target.style.color = '#fff';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = 'transparent';
+                    e.target.style.color = '#aaa';
+                  }}
+                  title="Copy address"
+                >
+                  📋
+                </button>
               </div>
             ))}
           </div>

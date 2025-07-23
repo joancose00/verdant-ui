@@ -6,6 +6,7 @@ import TabNavigation from '../../components/TabNavigation';
 import AddressExplorer from '../../components/AddressExplorer';
 import WalletQueryInterface from '../../components/WalletQueryInterface';
 import RatioOfShame from '../../components/RatioOfShame';
+import SellTransactions from '../../components/SellTransactions';
 
 export default function BasePage() {
   const chain = 'base';
@@ -48,6 +49,11 @@ export default function BasePage() {
       label: 'Ratio of Shame',
       icon: '📊',
       content: <RatioOfShame chain={chain} onAddressSelect={handleAddressSelect} />
+    },
+    {
+      label: 'Sell Transactions',
+      icon: '💱',
+      content: <SellTransactions chain={chain} />
     }
   ];
 
