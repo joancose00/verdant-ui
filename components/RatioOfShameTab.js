@@ -9,6 +9,7 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(savedState?.lastUpdated || { base: null });
+  const [isMobile, setIsMobile] = useState(false);
 
   // Filter state - simple checkbox for active miners only (default: true)
   const [showActiveMinersOnly, setShowActiveMinersOnly] = useState(
@@ -39,11 +40,22 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
     }
   }, [baseData, lastUpdated, showActiveMinersOnly, sortField, sortDirection]);
 
-  // Load cached data only if we don't have saved data
+  // Set up mobile detection and load cached data
   useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+
     if (!savedState?.baseData || savedState.baseData.length === 0) {
       loadCachedData();
     }
+
+    return () => {
+      window.removeEventListener('resize', checkIsMobile);
+    };
   }, []);
 
   const loadCachedData = async () => {
@@ -292,17 +304,22 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         border: '1px solid #333',
         marginBottom: '30px'
       }}>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{
+          display: 'flex',
+          gap: isMobile ? '10px' : '20px',
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
           <button
             onClick={refreshAllData}
             disabled={loading}
             style={{
-              padding: '10px 20px',
+              padding: isMobile ? '8px 12px' : '10px 20px',
               background: loading ? '#404040' : '#dc2626',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              fontSize: '14px',
+              fontSize: isMobile ? '12px' : '14px',
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
             title="Update ratios for ALL addresses in database"
@@ -314,12 +331,12 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
             onClick={refreshActiveData}
             disabled={loading}
             style={{
-              padding: '10px 20px',
+              padding: isMobile ? '8px 12px' : '10px 20px',
               background: loading ? '#404040' : '#10b981',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              fontSize: '14px',
+              fontSize: isMobile ? '12px' : '14px',
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
             title="Update ratios and 14-day ratios for addresses with active miners only"
@@ -427,11 +444,15 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
           border: '1px solid #333',
           overflow: 'hidden'
         }}>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch'
+          }}>
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '14px'
+              fontSize: isMobile ? '12px' : '14px',
+              minWidth: isMobile ? '800px' : 'auto'
             }}>
               <thead>
                 <tr style={{ background: '#262626' }}>

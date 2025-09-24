@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-export default function TabNavigation({ tabs, defaultTab = 0, activeTab: controlledActiveTab, onTabChange }) {
+export default function TabNavigation({ tabs, defaultTab = 0, activeTab: controlledActiveTab, onTabChange, isMobile = false }) {
   const [internalActiveTab, setInternalActiveTab] = useState(defaultTab);
   
   // Use controlled state if provided, otherwise use internal state
@@ -21,24 +21,27 @@ export default function TabNavigation({ tabs, defaultTab = 0, activeTab: control
       <div style={{
         display: 'flex',
         gap: '0',
-        marginBottom: '30px',
+        marginBottom: isMobile ? '20px' : '30px',
         borderBottom: '2px solid #333',
         background: '#1a1a1a',
         borderRadius: '12px 12px 0 0',
         padding: '4px',
-        paddingBottom: '0'
+        paddingBottom: '0',
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none'
       }}>
         {tabs.map((tab, index) => (
           <button
             key={index}
             onClick={() => setActiveTab(index)}
             style={{
-              padding: '12px 24px',
+              padding: isMobile ? '8px 16px' : '12px 24px',
               background: activeTab === index ? '#262626' : 'transparent',
               color: activeTab === index ? '#ffffff' : '#6b7280',
               border: 'none',
               borderRadius: '8px 8px 0 0',
-              fontSize: '16px',
+              fontSize: isMobile ? '14px' : '16px',
               fontWeight: activeTab === index ? 'bold' : 'normal',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
@@ -46,7 +49,9 @@ export default function TabNavigation({ tabs, defaultTab = 0, activeTab: control
               marginBottom: '-2px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
+              gap: isMobile ? '4px' : '8px',
+              whiteSpace: 'nowrap',
+              minWidth: 'fit-content'
             }}
           >
             <span>{tab.icon}</span>

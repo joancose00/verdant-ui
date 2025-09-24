@@ -11,12 +11,21 @@ export default function Home() {
   const chain = 'base';
   const [selectedAddress, setSelectedAddress] = useState('');
   const [activeTab, setActiveTab] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
 
   // State preservation for each tab
   const [tabStates, setTabStates] = useState({});
 
   // Check localStorage for selected address and tab on mount
   useEffect(() => {
+    // Set mobile state
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+
     const storedAddress = localStorage.getItem('selectedAddress');
     const storedTab = localStorage.getItem('selectedTab');
 
@@ -39,6 +48,10 @@ export default function Home() {
       setActiveTab(parseInt(storedTab));
       localStorage.removeItem('selectedTab'); // Clean up
     }
+
+    return () => {
+      window.removeEventListener('resize', checkIsMobile);
+    };
   }, []);
 
   // Save tab states whenever they change
@@ -105,12 +118,12 @@ export default function Home() {
       minHeight: '100vh',
       background: '#0a0a0a',
       color: '#ffffff',
-      padding: '30px'
+      padding: isMobile ? '15px' : '30px'
     }}>
       {/* Header */}
-      <div style={{ marginBottom: '40px' }}>
+      <div style={{ marginBottom: isMobile ? '20px' : '40px' }}>
         <h1 style={{
-          fontSize: '42px',
+          fontSize: isMobile ? '28px' : '42px',
           fontWeight: 'bold',
           margin: '0 0 10px 0',
           background: 'linear-gradient(45deg, #10b981, #3b82f6)',
@@ -121,7 +134,11 @@ export default function Home() {
           🌿 Verdant Explorer
         </h1>
 
-        <p style={{ color: '#a3a3a3', fontSize: '18px', margin: 0 }}>
+        <p style={{
+          color: '#a3a3a3',
+          fontSize: isMobile ? '14px' : '18px',
+          margin: 0
+        }}>
           Explore miners and query wallets on Base
         </p>
       </div>
@@ -132,6 +149,7 @@ export default function Home() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         defaultTab={0}
+        isMobile={isMobile}
       />
     </div>
   );
