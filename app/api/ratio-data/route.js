@@ -5,9 +5,7 @@ import {
   getAddressesNeedingRatioCalculation,
   getCurrentRatioAddresses,
   getAllAddressesWithActiveMiners,
-  getAllAddressesWithAnyMiners,
-  getMinerSellData,
-  debugLPTransactionData
+  getAllAddressesWithAnyMiners
 } from '../../../lib/database/operations.js';
 import { getAddressMetricsDirect, getMinerStatsDirect } from '../../../utils/directCalls.js';
 
@@ -16,13 +14,13 @@ import { getAddressMetricsDirect, getMinerStatsDirect } from '../../../utils/dir
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
-  const chain = searchParams.get('chain') || 'abstract';
+  const chain = searchParams.get('chain') || 'base';
   const count = searchParams.get('count') === 'true';
 
   try {
     // Validate parameters
-    if (!['abstract', 'base'].includes(chain)) {
-      return Response.json({ error: 'Invalid chain. Use "abstract" or "base"' }, { status: 400 });
+    if (chain !== 'base') {
+      return Response.json({ error: 'Invalid chain. Only "base" is supported' }, { status: 400 });
     }
 
     // Initialize database if needed
@@ -44,7 +42,7 @@ export async function GET(req) {
 
     console.log(`📊 Getting cached ratio data for ${chain} chain`);
     
-    const ratioData = await getCachedRatios(chain, 100);
+    const ratioData = await getCachedRatios(chain, 1000);
     
     return Response.json({
       success: true,
@@ -69,7 +67,7 @@ export async function POST(req) {
   };
 
   try {
-    const { chain = 'abstract', scanType = 'update', batchSize = 10 } = await req.json();
+    const { chain = 'base', scanType = 'update', batchSize = 10 } = await req.json();
     log(`📊 Starting ratio calculation for ${chain} chain (${scanType} mode)`);
 
     // Validate parameters
@@ -87,8 +85,6 @@ export async function POST(req) {
 
     const startTime = Date.now();
 
-    // Debug LP transaction data first
-    await debugLPTransactionData(chain);
 
     // Get addresses to process based on scan type
     let addressesToProcess;
@@ -116,7 +112,7 @@ export async function POST(req) {
     
     if (addressesToProcess.length === 0) {
       log(`📋 No addresses need ratio calculation for ${chain} chain`);
-      const existingRatios = await getCachedRatios(chain, 100);
+      const existingRatios = await getCachedRatios(chain, 1000);
       
       return Response.json({
         success: true,
@@ -152,34 +148,26 @@ export async function POST(req) {
         try {
           log(`   🔍 ${address}: Fetching metrics, miner stats, and sell data...`);
           // Fetch metrics, miner stats, and sell data in parallel
-          const [metrics, minerStats, sellData] = await Promise.all([
+          const [metrics, minerStats] = await Promise.all([
             getAddressMetricsDirect(chain, address),
-            getMinerStatsDirect(chain, address),
-            getMinerSellData(chain, address)
+            getMinerStatsDirect(chain, address)
           ]);
           
-          log(`   📥 ${address}: Metrics: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats: ${minerStats ? 'SUCCESS' : 'FAILED'}, SellData: ${sellData ? 'SUCCESS' : 'FAILED'}`);
+          log(`   📥 ${address}: Metrics: ${metrics ? 'SUCCESS' : 'FAILED'}, MinerStats: ${minerStats ? 'SUCCESS' : 'FAILED'}`);
           
           if (metrics && minerStats) {
             const deposits = parseFloat(metrics.deposits) || 0;
             const withdrawals = parseFloat(metrics.withdrawals) || 0;
             const activeMiners = parseInt(minerStats.activeMiners) || 0;
             const totalMiners = parseInt(minerStats.totalMiners) || 0;
-            const totalSells = sellData ? sellData.totalSells : 0;
-            
-            // Only skip if no miners at all (but allow addresses with inactive miners for sell data)
+
+            // Only skip if no miners at all
             if (totalMiners === 0) {
               log(`   ⚠️  ${address}: No miners at all - skipping`);
               return false;
             }
             
-            log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals, ${totalSells} sells`);
-            
-            if (sellData && sellData.totalTransactions > 0) {
-              log(`   💰 ${address}: Found ${sellData.totalTransactions} sell transactions, ${sellData.directSales} direct, ${sellData.tracedToMiner} traced`);
-            } else {
-              log(`   ⚠️  ${address}: No sell transactions found (sellData: ${JSON.stringify(sellData)})`);
-            }
+            log(`   📊 ${address}: Processing - ${activeMiners}/${totalMiners} miners, ${deposits} deposits, ${withdrawals} withdrawals`);
             
             // Calculate withdrawal ratio: withdrawals / deposits
             let withdrawalRatio = 0;
@@ -189,17 +177,9 @@ export async function POST(req) {
               withdrawalRatio = 999; // Very high ratio for addresses with withdrawals but no deposits
             }
 
-            // Calculate sell ratio: total sells / deposits
-            let sellRatio = 0;
-            if (deposits > 0) {
-              sellRatio = totalSells / deposits;
-            } else if (totalSells > 0) {
-              sellRatio = 999; // Very high ratio for addresses with sells but no deposits
-            }
-
-            // Store ratio data with both ratios
-            await storeRatioData(chain, address, deposits, withdrawals, withdrawalRatio, totalMiners, activeMiners, totalSells, sellRatio);
-            console.log(`   ✅ ${address}: Withdrawal ${withdrawalRatio.toFixed(4)}x (${withdrawals}/${deposits}), Sell ${sellRatio.toFixed(4)}x (${totalSells}/${deposits}) - ${activeMiners}/${totalMiners} active miners`);
+            // Store ratio data
+            await storeRatioData(chain, address, deposits, withdrawals, withdrawalRatio, totalMiners, activeMiners);
+            console.log(`   ✅ ${address}: Withdrawal ${withdrawalRatio.toFixed(4)}x (${withdrawals}/${deposits}) - ${activeMiners}/${totalMiners} active miners`);
             return true;
           } else {
             const failedService = !metrics ? 'metrics' : 'miner stats';
@@ -230,7 +210,7 @@ export async function POST(req) {
     console.log(`   - Duration: ${Math.round(duration/1000)}s`);
 
     // Get updated ratio data
-    const updatedRatios = await getCachedRatios(chain, 100);
+    const updatedRatios = await getCachedRatios(chain, 1000);
 
     return Response.json({
       success: true,

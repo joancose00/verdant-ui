@@ -6,7 +6,9 @@ const STORAGE_CORE_ABI = [
 ];
 
 const MINER_LOGIC_ABI = [
-  "function getPlayerMiners(address _player) external view returns (uint256[] minerIds, uint8[] minerTypes, uint8[] rarities, uint8[] lives, uint8[] shields, uint64[] lastMaintenance, uint64[] lastReward, uint64[] gracePeriodEnd, uint256[] pendingRewards, uint256[] maintenanceCosts)"
+  "function getPlayerMiners(address _player) external view returns (uint256[] minerIds, uint8[] minerTypes, uint8[] rarities, uint8[] lives, uint8[] shields, uint64[] lastMaintenance, uint64[] lastReward, uint64[] gracePeriodEnd, uint256[] pendingRewards, uint256[] maintenanceCosts)",
+  "function getPlayerRefinements(address _player) external view returns (tuple(uint256 verdantAmount, uint256 verditeAmount, uint64 collectionTime)[] memory)",
+  "event PurchasedBloom(address indexed player, uint256 verdantAmount, uint256 bloomAmount)"
 ];
 
 /**
@@ -21,9 +23,11 @@ export async function getAddressMetricsDirect(chain, address) {
       throw new Error('Invalid Ethereum address');
     }
 
-    const isBase = chain === 'base';
-    const storageAddress = isBase ? process.env.STORAGE_CONTRACT_BASE : process.env.STORAGE_CONTRACT_ABS;
-    const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
+    if (chain !== 'base') {
+      throw new Error('Only base chain is supported');
+    }
+    const storageAddress = process.env.STORAGE_CONTRACT_BASE;
+    const rpcUrl = process.env.RPC_URL_BASE;
 
     // Create fresh provider for each call to avoid any caching issues
     // Add random delay to prevent concurrent call conflicts
@@ -36,7 +40,7 @@ export async function getAddressMetricsDirect(chain, address) {
 
     // Fetch with retry logic
     let deposits, withdrawals;
-    const maxRetries = isBase ? 3 : 1;
+    const maxRetries = 3;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -50,7 +54,7 @@ export async function getAddressMetricsDirect(chain, address) {
         if (attempt === maxRetries) {
           throw error;
         }
-        await new Promise(resolve => setTimeout(resolve, isBase ? 1000 : 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
@@ -92,9 +96,11 @@ export async function getMinerStatsDirect(chain, address) {
       throw new Error('Invalid Ethereum address');
     }
 
-    const isBase = chain === 'base';
-    const rpcUrl = isBase ? process.env.RPC_URL_BASE : process.env.RPC_URL_ABS;
-    const minerContract = isBase ? process.env.MINER_CONTRACT_BASE : process.env.MINER_CONTRACT_ABS;
+    if (chain !== 'base') {
+      throw new Error('Only base chain is supported');
+    }
+    const rpcUrl = process.env.RPC_URL_BASE;
+    const minerContract = process.env.MINER_CONTRACT_BASE;
 
     // Add random delay to prevent concurrent call conflicts
     await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
@@ -106,7 +112,7 @@ export async function getMinerStatsDirect(chain, address) {
 
     // Fetch with retry logic
     let minerData;
-    const maxRetries = isBase ? 3 : 1;
+    const maxRetries = 3;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -122,7 +128,7 @@ export async function getMinerStatsDirect(chain, address) {
         if (attempt === maxRetries) {
           throw error;
         }
-        await new Promise(resolve => setTimeout(resolve, isBase ? 1000 : 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
@@ -182,5 +188,161 @@ export async function getMinerStatsDirect(chain, address) {
   } catch (error) {
     console.error(`❌ Direct miner stats failed for ${address}:`, error.message);
     return null;
+  }
+}
+
+/**
+ * Direct bloom history - same logic as /api/bloom-history
+ */
+export async function getBloomHistoryDirect(chain, address) {
+  try {
+    console.log(`🌸 Direct bloom history for ${address} on ${chain}`);
+
+    if (!ethers.isAddress(address)) {
+      console.error(`❌ Invalid address format: ${address}`);
+      throw new Error('Invalid Ethereum address');
+    }
+
+    if (chain !== 'base') {
+      throw new Error('Only base chain is supported');
+    }
+
+    const alchemyApiKey = process.env.ALCHEMY_API_KEY_BASE;
+    const minerContractAddress = process.env.MINER_CONTRACT_BASE;
+    const PURCHASE_BLOOM_SIGNATURE = '0xb947e924'; // purchaseBloom(uint256,address)
+
+    // Calculate timestamp for 14 days ago
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const fourteenDaysAgo = currentTimestamp - (14 * 24 * 60 * 60);
+
+    // Add random delay to prevent concurrent call conflicts
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+
+    // Use Alchemy's getAssetTransfers API to get transaction history
+    const alchemyUrl = `https://base-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
+
+    console.log(`   📅 Fetching transaction history from ${address} to ${minerContractAddress}`);
+
+    // Get transactions FROM the address TO the miner contract
+    const response = await fetch(alchemyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'alchemy_getAssetTransfers',
+        params: [{
+          fromAddress: address,
+          toAddress: minerContractAddress,
+          category: ['external'],
+          withMetadata: true,
+          excludeZeroValue: false,
+          maxCount: '0x3e8', // 1000 in hex
+          order: 'desc'
+        }]
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error.message);
+    }
+
+    const provider = new ethers.JsonRpcProvider(alchemyUrl, null, {
+      staticNetwork: true,
+      batchMaxCount: 1
+    });
+
+    // Process transactions to find bloom purchases
+    let totalVerdantSpent = 0;
+    let totalBloomReceived = 0;
+    const purchases = [];
+
+    console.log(`   🔍 Processing ${data.result.transfers.length} transactions`);
+
+    for (const transfer of data.result.transfers) {
+      const txTimestamp = new Date(transfer.metadata.blockTimestamp).getTime() / 1000;
+
+      // Skip if older than 14 days
+      if (txTimestamp < fourteenDaysAgo) continue;
+
+      try {
+        // Get transaction details to check if it's a purchaseBloom call
+        const tx = await provider.getTransaction(transfer.hash);
+        if (!tx || !tx.data) continue;
+
+        // Check if transaction data starts with purchaseBloom function signature
+        if (tx.data.toLowerCase().startsWith(PURCHASE_BLOOM_SIGNATURE.toLowerCase())) {
+          // Get transaction receipt to find PurchasedBloom event
+          const receipt = await provider.getTransactionReceipt(transfer.hash);
+          if (!receipt) continue;
+
+          // Look for PurchasedBloom event in logs
+          const purchaseBloomTopic = '0xe23a5f8390716f10c4e92f3d40fb979c90bae202d8c4a2734ac0be6904d3fb1a';
+
+          for (const log of receipt.logs) {
+            if (log.topics[0] === purchaseBloomTopic &&
+                log.topics[1] === ethers.zeroPadValue(address.toLowerCase(), 32)) {
+
+              // Decode the event data
+              const verdantAmount = ethers.getBigInt(log.data.slice(0, 66));
+              const bloomAmount = ethers.getBigInt('0x' + log.data.slice(66, 130));
+
+              const verdantAmountFormatted = parseFloat(ethers.formatEther(verdantAmount));
+              const bloomAmountFormatted = parseFloat(ethers.formatEther(bloomAmount));
+
+              totalVerdantSpent += verdantAmountFormatted;
+              totalBloomReceived += bloomAmountFormatted;
+
+              purchases.push({
+                transactionHash: transfer.hash,
+                blockNumber: parseInt(transfer.blockNum, 16),
+                timestamp: new Date(txTimestamp * 1000).toISOString(),
+                verdantAmount: verdantAmountFormatted.toFixed(2),
+                bloomAmount: bloomAmountFormatted.toFixed(2),
+                timeAgo: formatTimeAgo(txTimestamp, currentTimestamp)
+              });
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to process transaction ${transfer.hash}:`, error.message);
+        continue;
+      }
+    }
+
+    // Sort purchases by timestamp (most recent first)
+    purchases.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    console.log(`✅ Direct bloom history success: ${purchases.length} purchases in last 14 days`);
+
+    return {
+      totalPurchases: purchases.length,
+      totalVerdantSpent: totalVerdantSpent.toFixed(2),
+      totalBloomReceived: totalBloomReceived.toFixed(2),
+      purchases
+    };
+
+  } catch (error) {
+    console.error(`❌ Direct bloom history failed for ${address}:`, error.message);
+    return null;
+  }
+}
+
+function formatTimeAgo(timestamp, currentTimestamp) {
+  const diffSeconds = currentTimestamp - timestamp;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays > 0) {
+    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  } else if (diffHours > 0) {
+    return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  } else if (diffMinutes > 0) {
+    return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+  } else {
+    return 'Just now';
   }
 }

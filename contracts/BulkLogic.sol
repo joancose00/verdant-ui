@@ -13,32 +13,27 @@ interface IStorageCore {
         uint64 lastReward;
         uint64 gracePeriodEnd;
     }
-
     struct GiftMiner {
         address recipient;
         uint8 minerType;
         bool claimed;
     }
-
     struct GiftItem {
         address recipient;
         uint8 itemType;
         uint16 quantity;
         bool claimed;
     }
-
     struct Item {
         address owner;
         uint8 itemType;
         uint16 quantity;
     }
-
     struct ItemType {
         uint8 effect;
         uint8 rarity;
         uint8 maxQuantity;
     }
-
     struct MinerType {
         uint8 rarity;
         uint8 initialLives;
@@ -46,6 +41,7 @@ interface IStorageCore {
         uint8 shieldsCapacity;
     }
 
+    function verditeRate() external view returns (uint256);
     function getAllPlayerMiners(address _player) external view returns (uint256[] memory);
     function getAllPlayerItems(address _player) external view returns (uint256[] memory);
     function getAllPlayerGiftMiners(address _player) external view returns (uint256[] memory);
@@ -99,6 +95,7 @@ contract BulkLogic is Ownable {
     
     uint256 constant MAINTENANCE_WINDOW = 7 days;
 
+    event ClaimedRewards(address indexed player, uint256 verdantAmount, uint256 verditeAmount, uint256 minerId);
     event MinerDestroyed(address indexed player, uint256 minerId);
     
     constructor(address _storageCore, address _minerLogic) Ownable(msg.sender) {
@@ -359,8 +356,12 @@ contract BulkLogic is Ownable {
             if (rewards > 0) {
                 storageCore.updateVerditeBalance(msg.sender, rewards, true);
                 storageCore.updateMinerLastReward(_minerIds[i], uint64(block.timestamp));
+                
                 totalRewards += rewards;
                 results[i] = true;
+
+                uint256 verdantAmount = rewards / storageCore.verditeRate();
+                emit ClaimedRewards(msg.sender, verdantAmount, rewards, _minerIds[i]);
             } else {
                 results[i] = false;
             }

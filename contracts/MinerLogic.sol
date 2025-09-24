@@ -46,7 +46,6 @@ interface IStorageCore {
     function playerExpansionSlots(address _player, uint8 _rarity) external view returns (uint8);
     function getAllPlayerMiners(address _player) external view returns (uint256[] memory);
     function getAllPlayerGiftMiners(address _player) external view returns (uint256[] memory);
-    function setMinerType(uint8 _typeId, uint8 _rarity, uint8 _lives, uint8 _initialShields, uint8 _shieldsCapacity) external;
     function setReferrer(address _player, address _referrer) external;
     function updateMinerLastMaintenance(uint256 _minerId, uint64 _timestamp) external;
     function updateMinerLastReward(uint256 _minerId, uint64 _timestamp) external;
@@ -80,6 +79,7 @@ contract MinerLogic is Ownable {
     using Math for uint256;
 
     uint32 public constant MAINTENANCE_WINDOW = 7 days;
+    uint32 public constant REFINEMENT_DURATION = 14 days;
 
     uint8 public constant PROMOTIONAL = 0;
     uint8 public constant COMMON = 1;
@@ -95,7 +95,7 @@ contract MinerLogic is Ownable {
     uint16 public constant BASIC_REWARDS_DIVISOR = 90;
     uint16 public constant ADVANCED_REWARDS_DIVISOR = 60;
     uint16 public constant ELITE_REWARDS_DIVISOR = 30;
-    
+
     uint16 public constant STARTER_CAPACITY_DIVISOR = 15;
     uint16 public constant BASIC_CAPACITY_DIVISOR = 20;
     uint16 public constant ADVANCED_CAPACITY_DIVISOR = 25;
@@ -105,7 +105,7 @@ contract MinerLogic is Ownable {
     uint8 public constant COMMON_DEFAULT_CAPACITY = 5;
     uint8 public constant RARE_DEFAULT_CAPACITY = 3;
     uint8 public constant MYTHIC_DEFAULT_CAPACITY = 1;
-    
+
     uint8 public constant PROMOTIONAL_MAX_CAPACITY = 3;
     uint8 public constant COMMON_MAX_CAPACITY = 20;
     uint8 public constant RARE_MAX_CAPACITY = 15;
@@ -114,10 +114,22 @@ contract MinerLogic is Ownable {
     IStorageCore public immutable storageCore;
     IERC20 public immutable verdantToken;
     address public liquidityPair;
-    
+
+    struct Refinement {
+        uint256 verdantAmount;
+        uint256 verditeAmount;
+        uint64 collectionTime;
+    }
+
+    mapping(address => Refinement[]) public verditeRefinements;
+
+    event ClaimedRewards(address indexed player, uint256 verdantAmount, uint256 verditeAmount, uint256 minerId);
+    event PurchasedBloom(address indexed player, uint256 verdantAmount, uint256 bloomAmount);
     event MinerDestroyed(address indexed player, uint256 indexed minerId);
     event ReferralReward(address indexed referrer, address indexed player, uint256 amount);
-    
+    event RefinementInitiated(address indexed player, uint256 verdantAmount, uint256 verditeAmount, uint64 collectionTime);
+    event RefinementCollected(address indexed player, uint256 verdantAmount, uint256 verditeAmount);
+
     /**
      * @dev Initializes the MinerLogic contract
      * @param _storageCore Address of the StorageCore contract
@@ -128,29 +140,19 @@ contract MinerLogic is Ownable {
     }
 
     /**
-     * @dev Sets up the default miner types (Starter, Basic, Advanced, Elite)
-     */
-    function setupDefaultMinerTypes() external onlyOwner {
-        storageCore.setMinerType(STARTER_MINER, PROMOTIONAL, 2, 1, 2);
-        storageCore.setMinerType(BASIC_MINER, COMMON, 2, 2, 4);
-        storageCore.setMinerType(ADVANCED_MINER, RARE, 2, 2, 4);
-        storageCore.setMinerType(ELITE_MINER, MYTHIC, 2, 2, 4);
-    }
-
-    /**
      * @dev Sets up the Uniswap liquidity pair for price calculations
-     * @param _verdantToken Address of the Verdant token
+     * @param _virtualToken Address of the Virtual token
+     * @param _uniswapRouter Address of the Uniswap V2 Router
      */
-    function setupLiquidityPair(address _verdantToken, address _uniswapRouter) public onlyOwner {
+    function setupLiquidityPair(address _virtualToken, address _uniswapRouter) public onlyOwner {
         IUniswapV2Factory uniswapFactory = IUniswapV2Factory(IUniswapV2Router02(_uniswapRouter).factory());
-        address weth = IUniswapV2Router02(_uniswapRouter).WETH();
-        liquidityPair = uniswapFactory.getPair(_verdantToken, weth);
+        liquidityPair = uniswapFactory.getPair(address(verdantToken), _virtualToken);
         if (liquidityPair == address(0)) {
-            liquidityPair = uniswapFactory.getPair(weth, _verdantToken);
+            liquidityPair = uniswapFactory.getPair(_virtualToken, address(verdantToken));
             require(liquidityPair != address(0), "Liquidity pair not found");
         }
     }
-    
+
     /**
      * @dev Retrieves the current amount of Verdant tokens in the liquidity pool
      * @return Amount of Verdant tokens in the pool
@@ -160,6 +162,15 @@ contract MinerLogic is Ownable {
             return 0;
         }
         return verdantToken.balanceOf(liquidityPair);
+    }
+
+    /**
+     * @dev Retrieves all refinements scheduled by a player
+     * @param _player Address of the player
+     * @return refinements Array of refinements for the player
+     */
+    function getPlayerRefinements(address _player) external view returns (Refinement[] memory) {
+        return verditeRefinements[_player];
     }
 
     /**
@@ -183,7 +194,7 @@ contract MinerLogic is Ownable {
         uint256[] memory maintenanceCosts
     ) {
         uint8 totalMinerTypes = storageCore.totalMinerTypes();
-        
+
         uint8 purchasableCount = 0;
         for (uint8 i = 0; i < totalMinerTypes; i++) {
             IStorageCore.MinerType memory minerType = storageCore.minerTypes(i);
@@ -191,7 +202,7 @@ contract MinerLogic is Ownable {
                 purchasableCount++;
             }
         }
-        
+
         minerTypes = new uint8[](purchasableCount);
         rarities = new uint8[](purchasableCount);
         lives = new uint8[](purchasableCount);
@@ -204,25 +215,25 @@ contract MinerLogic is Ownable {
         uint8 index = 0;
         for (uint8 i = 0; i < totalMinerTypes; i++) {
             IStorageCore.MinerType memory minerType = storageCore.minerTypes(i);
-            
+
             if (minerType.rarity != PROMOTIONAL) {
                 minerTypes[index] = i;
                 rarities[index] = minerType.rarity;
                 lives[index] = minerType.initialLives;
                 shields[index] = minerType.initialShields;
-                
+
                 uint256 cost = calculateMinerBloomCost(i);
                 costs[index] = cost;
-                
+
                 uint256 dailyReward = calculateRewardsRate(i, cost);
                 dailyRewards[index] = dailyReward;
-                
+
                 rewardsCapacities[index] = calculateRewardsCapacity(i, dailyReward);
                 maintenanceCosts[index] = calculateMaintenanceCost(dailyReward);
                 index++;
             }
         }
-        
+
         return (minerTypes, rarities, lives, shields, costs, dailyRewards, rewardsCapacities, maintenanceCosts);
     }
 
@@ -267,7 +278,7 @@ contract MinerLogic is Ownable {
         for (uint256 i = 0; i < length; i++) {
             IStorageCore.Miner memory miner = storageCore.miners(minerIds[i]);
             IStorageCore.MinerType memory minerTypeData = storageCore.minerTypes(miner.minerType);
-            
+
             minerTypes[i] = miner.minerType;
             rarities[i] = minerTypeData.rarity;
             lives[i] = calculateMinerLives(miner);
@@ -275,18 +286,18 @@ contract MinerLogic is Ownable {
             lastMaintenance[i] = miner.lastMaintenance;
             lastReward[i] = miner.lastReward;
             gracePeriodEnd[i] = miner.gracePeriodEnd;
-            
+
             uint256 timeElapsed = block.timestamp - miner.lastMaintenance;
             uint256 maintenanceWindow = MAINTENANCE_WINDOW;
-            
+
             pendingRewards[i] = calculateRewards(miner);
-            
+
             uint256 bloomCost = calculateMinerBloomCost(miner.minerType);
             uint256 rewardsRate = calculateRewardsRate(miner.minerType, bloomCost);
             uint256 baseCost = calculateMaintenanceCost(rewardsRate);
             maintenanceCosts[i] = (baseCost * timeElapsed) / maintenanceWindow;
         }
-        
+
         return (
             minerIds,
             minerTypes,
@@ -300,7 +311,7 @@ contract MinerLogic is Ownable {
             maintenanceCosts
         );
     }
-    
+
     /**
      * @dev Retrieves information about all unclaimed miners in a player's gift inventory
      * @param _player Address of the player
@@ -315,16 +326,16 @@ contract MinerLogic is Ownable {
     ) {
         giftMinerIds = storageCore.getAllPlayerGiftMiners(_player);
         uint256 giftMinerCount = giftMinerIds.length;
-        
+
         minerTypes = new uint8[](giftMinerCount);
         rarities = new uint8[](giftMinerCount);
-        
+
         for (uint256 i = 0; i < giftMinerCount; i++) {
             IStorageCore.GiftMiner memory giftMiner = storageCore.giftMiners(giftMinerIds[i]);
             minerTypes[i] = giftMiner.minerType;
             rarities[i] = storageCore.minerTypes(giftMiner.minerType).rarity;
         }
-        
+
         return (giftMinerIds, minerTypes, rarities);
     }
 
@@ -358,7 +369,7 @@ contract MinerLogic is Ownable {
      * @param _bloomCost The bloom cost of the miner
      * @return The daily rewards rate for the miner type
      */
-    function calculateRewardsRate(uint8 _minerType, uint256 _bloomCost) public view returns (uint256) {        
+    function calculateRewardsRate(uint8 _minerType, uint256 _bloomCost) public view returns (uint256) {
         uint16 divisor;
         if (_minerType == STARTER_MINER) {
             divisor = STARTER_REWARDS_DIVISOR;
@@ -373,7 +384,7 @@ contract MinerLogic is Ownable {
         }
         return (_bloomCost * (storageCore.verditeRate() / storageCore.bloomRate())) / divisor;
     }
-    
+
     /**
      * @dev Calculates the rewards capacity for a miner type based on daily rewards
      * @param _minerType The type of miner
@@ -404,19 +415,19 @@ contract MinerLogic is Ownable {
     function calculateMinerBloomCost(uint8 _minerType) public view returns (uint256) {
         uint256 verdantInPool = getVerdantInLiquidityPool();
         uint256 bloomRate = storageCore.bloomRate();
-        
+
         if (_minerType == STARTER_MINER) {
             uint256 dynamicCost = (verdantInPool * 10) / 100000;
-            return Math.min(dynamicCost * bloomRate, 50000000000000000000000);
+            return Math.min(dynamicCost * bloomRate, 2400000000000000000000000);
         } else if (_minerType == BASIC_MINER) {
             uint256 dynamicCost = (verdantInPool * 75) / 100000;
-            return Math.min(dynamicCost * bloomRate, 500000000000000000000000);
+            return Math.min(dynamicCost * bloomRate, 24000000000000000000000000);
         } else if (_minerType == ADVANCED_MINER) {
             uint256 dynamicCost = (verdantInPool * 3) / 1000;
-            return Math.min(dynamicCost * bloomRate, 5000000000000000000000000);
+            return Math.min(dynamicCost * bloomRate, 240000000000000000000000000);
         } else if (_minerType == ELITE_MINER) {
             uint256 dynamicCost = (verdantInPool * 15) / 1000;
-            return Math.min(dynamicCost * bloomRate, 50000000000000000000000000);
+            return Math.min(dynamicCost * bloomRate, 2400000000000000000000000000);
         }
         revert("Invalid miner type");
     }
@@ -428,7 +439,7 @@ contract MinerLogic is Ownable {
      */
     function calculateMinerLives(IStorageCore.Miner memory miner) public view returns (uint8) {
         if (miner.lives == 0) return 0;
-        
+
         uint256 timeSinceLastMaintenance = block.timestamp - miner.lastMaintenance;
         uint256 missedWindows = timeSinceLastMaintenance / MAINTENANCE_WINDOW;
         if (missedWindows >= miner.lives) return 0;
@@ -450,9 +461,9 @@ contract MinerLogic is Ownable {
         uint256 rewardsRate = calculateRewardsRate(miner.minerType, bloomCost);
         uint256 timeSinceLastReward = block.timestamp - miner.lastReward;
         uint256 rewards = (rewardsRate * timeSinceLastReward) / 1 days;
-        
+
         uint256 capacity = calculateRewardsCapacity(miner.minerType, rewardsRate);
-        
+
         return Math.min(rewards, capacity);
     }
 
@@ -524,13 +535,13 @@ contract MinerLogic is Ownable {
      */
     function purchaseBloom(uint256 _amount, address _referrer) external returns (uint256) {
         require(_amount > 0, "Amount must be greater than 0");
-        
+
         uint256 bloomAmount = _amount * storageCore.bloomRate();
         uint256 tax = (bloomAmount * storageCore.taxPercentage()) / 10000;
         uint256 afterTax = bloomAmount - tax;
-        
+
         uint256 taxAmount = (_amount * storageCore.taxPercentage()) / 10000;
-        
+
         storageCore.receiveVerdant(msg.sender, _amount, taxAmount);
         storageCore.updateBloomBalance(msg.sender, afterTax, true);
 
@@ -543,26 +554,58 @@ contract MinerLogic is Ownable {
         else {
             distributeReferral(afterTax);
         }
-        
+
+        emit PurchasedBloom(msg.sender, _amount, afterTax);
+
         return afterTax;
     }
 
     /**
-     * @dev Refines Verdite into Verdant tokens
+     * @dev Schedules a refinement of Verdite into Verdant tokens
      * @param _amount Amount of Verdite to refine
      * @return Amount of Verdant tokens received after tax
      */
     function refineVerdite(uint256 _amount) external returns (uint256) {
         require(_amount > 0, "Amount must be greater than 0");
         require(storageCore.verditeBalances(msg.sender) >= _amount, "Insufficient Verdite balance");
-        
+
         uint256 verdantAmount = _amount / storageCore.verditeRate();
         uint256 tax = (verdantAmount * storageCore.taxPercentage()) / 10000;
         uint256 afterTax = verdantAmount - tax;
-        
+
         storageCore.updateVerditeBalance(msg.sender, _amount, false);
+
+        uint64 collectionTime = uint64(block.timestamp) + REFINEMENT_DURATION;
+        verditeRefinements[msg.sender].push(Refinement({ verdantAmount: afterTax, verditeAmount: _amount, collectionTime: collectionTime }));
+        emit RefinementInitiated(msg.sender, afterTax, _amount, collectionTime);
+
+        return afterTax;
+    }
+
+    /**
+     * @dev Claims a scheduled refinement of Verdite into Verdant tokens
+     * @param _refinementId Index of the refinement to claim in the player's refinements array
+     * @return Amount of Verdant tokens received after tax
+     */
+    function claimRefinement(uint256 _refinementId) external returns (uint256) {
+        Refinement[] storage refinements = verditeRefinements[msg.sender];
+        require(_refinementId < refinements.length, "Invalid Refinement");
+
+        Refinement memory refinement = refinements[_refinementId];
+        require(block.timestamp >= refinement.collectionTime, "Refinement not ready to claim");
+
+        uint256 verdantAmount = refinement.verditeAmount / storageCore.verditeRate();
+        uint256 tax = (verdantAmount * storageCore.taxPercentage()) / 10000;
+        uint256 afterTax = verdantAmount - tax;
+
         storageCore.sendVerdant(msg.sender, afterTax, tax);
-        
+
+        if (_refinementId != refinements.length - 1) {
+            refinements[_refinementId] = refinements[refinements.length - 1];
+        }
+        refinements.pop();
+        emit RefinementCollected(msg.sender, afterTax, refinement.verditeAmount);
+
         return afterTax;
     }
 
@@ -580,9 +623,13 @@ contract MinerLogic is Ownable {
         updateMinerState(miner, _minerId);
         uint256 rewards = calculateRewards(miner);
         require(rewards > 0, "No rewards to claim");
-        
+
         storageCore.updateVerditeBalance(msg.sender, rewards, true);
         storageCore.updateMinerLastReward(_minerId, uint64(block.timestamp));
+
+        uint256 verdantAmount = rewards / storageCore.verditeRate();
+        emit ClaimedRewards(msg.sender, verdantAmount, rewards, _minerId);
+
         return rewards;
     }
 
@@ -635,7 +682,7 @@ contract MinerLogic is Ownable {
      * @param miner Miner data to update
      * @param _minerId ID of the miner to update
      */
-    function updateMinerState(IStorageCore.Miner memory miner, uint256 _minerId) internal {         
+    function updateMinerState(IStorageCore.Miner memory miner, uint256 _minerId) internal {
         uint256 maintenanceWindow = MAINTENANCE_WINDOW;
         uint256 deadline = miner.lastMaintenance + maintenanceWindow;
 

@@ -14,11 +14,11 @@ import {
 
 export async function POST(req) {
   try {
-    const { chain = 'abstract', maxMiners = 100, scanType = 'cached' } = await req.json();
+    const { chain = 'base', maxMiners = 100, scanType = 'cached' } = await req.json();
 
     // Validate parameters
-    if (!['abstract', 'base'].includes(chain)) {
-      return Response.json({ error: 'Invalid chain. Use "abstract" or "base"' }, { status: 400 });
+    if (chain !== 'base') {
+      return Response.json({ error: 'Invalid chain. Only "base" is supported' }, { status: 400 });
     }
 
     if (maxMiners < 1 || maxMiners > 10000) {
@@ -121,12 +121,12 @@ export async function POST(req) {
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
-  const chain = searchParams.get('chain') || 'abstract';
+  const chain = searchParams.get('chain') || 'base';
 
   try {
     // Validate parameters
-    if (!['abstract', 'base'].includes(chain)) {
-      return Response.json({ error: 'Invalid chain. Use "abstract" or "base"' }, { status: 400 });
+    if (chain !== 'base') {
+      return Response.json({ error: 'Invalid chain. Only "base" is supported' }, { status: 400 });
     }
 
     // Initialize database if needed

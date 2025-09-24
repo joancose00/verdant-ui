@@ -47,7 +47,6 @@ interface IStorageCore {
     function playerExpansionSlots(address _player, uint8 _rarity) external view returns (uint8);
     function getAllPlayerItems(address _player) external view returns (uint256[] memory);
     function getAllPlayerGiftItems(address _player) external view returns (uint256[] memory);
-    function setItemType(uint8 _typeId, uint8 _effect, uint8 _rarity, uint8 _maxQuantity) external;
     function updateMinerLives(uint256 _minerId, uint8 _lives) external;
     function updateMinerShields(uint256 _minerId, uint8 _shields) external;
     function updateMinerGracePeriod(uint256 _minerId, uint64 _gracePeriodEnd) external;
@@ -119,7 +118,8 @@ contract ItemLogic is Ownable {
     uint8 public constant COMMON_MAX_CAPACITY = 20;
     uint8 public constant RARE_MAX_CAPACITY = 15;
     uint8 public constant MYTHIC_MAX_CAPACITY = 10;
-    
+
+    event MinerDamaged(address indexed player, uint256 indexed minerId);
     event MinerDisabled(address indexed player, uint256 indexed minerId);
 
     /**
@@ -130,41 +130,6 @@ contract ItemLogic is Ownable {
     constructor(address _storageCore, address _minerLogic) Ownable(msg.sender) {
         storageCore = IStorageCore(_storageCore);
         minerLogic = IMinerLogic(_minerLogic);
-    }
-    
-    /**
-     * @dev Sets up all the default item types across Promotional, Common, Rare and Mythic rarities
-     */
-    function setupDefaultItemTypes() external onlyOwner {
-        storageCore.setItemType(0, EXPANSION_SLOT, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(1, EXPANSION_SLOT, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(2, EXPANSION_SLOT, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(3, MINOR_BOMB, PROMOTIONAL, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(4, MINOR_BOMB, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(5, MINOR_BOMB, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(6, MINOR_BOMB, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(7, MAJOR_BOMB, PROMOTIONAL, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(8, MAJOR_BOMB, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(9, MAJOR_BOMB, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(10, MAJOR_BOMB, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(11, MINOR_SHIELD, PROMOTIONAL, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(12, MINOR_SHIELD, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(13, MINOR_SHIELD, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(14, MINOR_SHIELD, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(15, MAJOR_SHIELD, PROMOTIONAL, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(16, MAJOR_SHIELD, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(17, MAJOR_SHIELD, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(18, MAJOR_SHIELD, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(19, RESTORE, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(20, RESTORE, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(21, RESTORE, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(22, REVIVE, PROMOTIONAL, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(23, REVIVE, COMMON, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(24, REVIVE, RARE, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(25, REVIVE, MYTHIC, DEFAULT_ITEM_MAX_QUANTITY);
-        storageCore.setItemType(26, MORPH, COMMON, MORPH_MAX_QUANTITY);
-        storageCore.setItemType(27, MORPH, RARE, MORPH_MAX_QUANTITY);
-        storageCore.setItemType(28, MORPH, MYTHIC, MORPH_MAX_QUANTITY);
     }
 
     /**
@@ -333,16 +298,17 @@ contract ItemLogic is Ownable {
      * @dev Finds an available item slot for a player
      * @param _player The address of the player
      * @param _itemType The type ID of the item to find a slot for
-     * @return The index of the first available slot or the length of the player's items array if no available slots are found
+     * @return The ID of the first matching item or the length of the player's items array if no matching items are found
      */
     function findItemSlot(address _player, uint8 _itemType) internal view returns (uint256) {
         uint256[] memory playerItems = storageCore.getAllPlayerItems(_player);
         for (uint256 i = 0; i < playerItems.length; i++) {
-            if (playerItems[i] == _itemType) {
-                return i;
+            IStorageCore.Item memory item = storageCore.items(playerItems[i]);
+            if (item.itemType == _itemType) {
+                return playerItems[i];
             }
         }
-        return playerItems.length;
+        return 0;
     }
 
     function validateItemUsage(uint256 _itemId) internal view returns (IStorageCore.Item memory item) {
@@ -363,7 +329,7 @@ contract ItemLogic is Ownable {
         require(_quantity <= itemType.maxQuantity, "Max purchase quantity exceeded");
         uint256 itemCost = calculateItemCost(itemType.effect, itemType.rarity) * _quantity;
         uint256 itemSlot = findItemSlot(msg.sender, _itemType);
-        if (itemSlot < storageCore.getAllPlayerItems(msg.sender).length) {
+        if (itemSlot != 0) {
             uint16 newQuantity = storageCore.items(itemSlot).quantity + _quantity;
             require(newQuantity <= itemType.maxQuantity, "Max item quantity exceeded");
             storageCore.updateBloomBalance(msg.sender, itemCost, false);
@@ -431,6 +397,7 @@ contract ItemLogic is Ownable {
         
         if (newShields > 0) {
             storageCore.updateMinerGracePeriod(_minerId, uint64(block.timestamp + GRACE_PERIOD));
+            emit MinerDamaged(msg.sender, _minerId);
         } else {
             emit MinerDisabled(msg.sender, _minerId);
         }
@@ -562,36 +529,12 @@ contract ItemLogic is Ownable {
         require(giftItem.recipient == msg.sender, "Not the gift recipient");
         require(giftItem.claimed == false, "Gift item already claimed");
         uint256 itemSlot = findItemSlot(msg.sender, giftItem.itemType);
-        if (itemSlot < storageCore.getAllPlayerItems(msg.sender).length) {
+        if (itemSlot != 0) {
             uint16 newQuantity = storageCore.items(itemSlot).quantity + giftItem.quantity;
             require(newQuantity <= storageCore.itemTypes(giftItem.itemType).maxQuantity, "Max item quantity exceeded");
             storageCore.updateItemFromGift(_giftItemId, itemSlot);
             return itemSlot;
         }
         return storageCore.createItemFromGift(_giftItemId);
-    }
-
-    /**
-     * @dev Retrieves the deposit and withdrawal amounts for an address and calculates the ratio
-     * @param _address The address to query
-     * @return deposits The deposit amount for the address
-     * @return withdrawals The withdrawal amount for the address
-     * @return ratio The calculated ratio as 1 + (withdrawals / deposits)
-     */
-    function getAddressMetrics(address _address) external view returns (
-        uint256 deposits,
-        uint256 withdrawals,
-        uint256 ratio
-    ) {
-        deposits = storageCore.deposits(_address);
-        withdrawals = storageCore.withdrawals(_address);
-        
-        if (deposits > 0) {
-            ratio = 1 + (withdrawals / deposits);
-        } else {
-            ratio = 10;
-        }
-        
-        return (deposits, withdrawals, ratio);
     }
 }
