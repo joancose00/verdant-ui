@@ -1,5 +1,5 @@
-import { 
-  initializeDatabase, 
+import {
+  initializeDatabase,
   getCachedRatios,
   storeRatioData,
   getAddressesNeedingRatioCalculation,
@@ -9,8 +9,9 @@ import {
 } from '../../../lib/database/operations.js';
 import { getAddressMetricsDirect, getMinerStatsDirect } from '../../../utils/directCalls.js';
 
-
-
+// Force this route to be dynamic and never cache
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);

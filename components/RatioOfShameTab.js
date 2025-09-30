@@ -66,7 +66,13 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
       console.log('📋 Loading cached ratio data for Base chain...');
 
       // Load cached data from base chain via GET request
-      const baseResponse = await fetch('/api/ratio-data?chain=base');
+      const baseResponse = await fetch('/api/ratio-data?chain=base', {
+        cache: 'no-store',  // Prevent client-side caching
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
       const baseResult = await baseResponse.json();
 
       if (baseResult.error) console.error('Base error:', baseResult.error);
@@ -220,7 +226,13 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         console.log(`✅ 14-day ratios refreshed for ${refresh14DayResult.updatedCount} addresses`);
 
         // Reload the ratio data to get the updated 14-day ratios
-        const updatedBaseResponse = await fetch('/api/ratio-data?chain=base');
+        const updatedBaseResponse = await fetch('/api/ratio-data?chain=base', {
+          cache: 'no-store',  // Prevent client-side caching
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
 
         // Check if the response is ok and is JSON
         if (!updatedBaseResponse.ok) {
