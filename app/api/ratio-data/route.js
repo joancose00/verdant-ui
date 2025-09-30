@@ -37,25 +37,44 @@ export async function GET(req) {
         success: true,
         chain,
         addressesToProcess: addressesToProcess.length
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
       });
     }
 
     console.log(`📊 Getting cached ratio data for ${chain} chain`);
-    
+
     const ratioData = await getCachedRatios(chain, 1000);
-    
+
     return Response.json({
       success: true,
       chain,
       ratioData,
       lastUpdated: ratioData[0]?.lastCalculatedAt || null
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     });
 
   } catch (error) {
     console.error('Ratio data error:', error);
-    return Response.json({ 
-      error: error.message || 'Failed to get ratio data' 
-    }, { status: 500 });
+    return Response.json({
+      error: error.message || 'Failed to get ratio data'
+    }, {
+      status: 500,
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
   }
 }
 

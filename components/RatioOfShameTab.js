@@ -109,6 +109,19 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         })
       });
 
+      // Check if the response is ok and is JSON
+      if (!baseResponse.ok) {
+        const errorText = await baseResponse.text();
+        throw new Error(`API request failed (${baseResponse.status}): ${errorText}`);
+      }
+
+      // Check Content-Type header
+      const contentType = baseResponse.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const responseText = await baseResponse.text();
+        throw new Error(`Expected JSON response but got: ${responseText.substring(0, 100)}`);
+      }
+
       const baseResult = await baseResponse.json();
 
       if (baseResult.error) console.error('Base error:', baseResult.error);
@@ -150,6 +163,19 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         })
       });
 
+      // Check if the response is ok and is JSON
+      if (!baseResponse.ok) {
+        const errorText = await baseResponse.text();
+        throw new Error(`API request failed (${baseResponse.status}): ${errorText}`);
+      }
+
+      // Check Content-Type header
+      const contentType = baseResponse.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const responseText = await baseResponse.text();
+        throw new Error(`Expected JSON response but got: ${responseText.substring(0, 100)}`);
+      }
+
       const baseResult = await baseResponse.json();
 
       if (baseResult.error) console.error('Base error:', baseResult.error);
@@ -174,13 +200,41 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      const refresh14DayResult = await refresh14DayResponse.json();
+      // Check if the response is ok and is JSON
+      if (!refresh14DayResponse.ok) {
+        const errorText = await refresh14DayResponse.text();
+        console.warn(`14-day ratio refresh failed (${refresh14DayResponse.status}): ${errorText}`);
+        // Continue without throwing - this is not critical
+      }
+
+      const contentType14d = refresh14DayResponse.headers.get('content-type');
+      if (!contentType14d || !contentType14d.includes('application/json')) {
+        const responseText = await refresh14DayResponse.text();
+        console.warn(`14-day refresh expected JSON but got: ${responseText.substring(0, 100)}`);
+        // Continue without throwing - this is not critical
+      }
+
+      const refresh14DayResult = refresh14DayResponse.ok ? await refresh14DayResponse.json() : { success: false };
 
       if (refresh14DayResult.success) {
         console.log(`✅ 14-day ratios refreshed for ${refresh14DayResult.updatedCount} addresses`);
 
         // Reload the ratio data to get the updated 14-day ratios
         const updatedBaseResponse = await fetch('/api/ratio-data?chain=base');
+
+        // Check if the response is ok and is JSON
+        if (!updatedBaseResponse.ok) {
+          console.warn(`Failed to reload ratio data (${updatedBaseResponse.status})`);
+          return; // Exit early but don't throw
+        }
+
+        const updatedContentType = updatedBaseResponse.headers.get('content-type');
+        if (!updatedContentType || !updatedContentType.includes('application/json')) {
+          const responseText = await updatedBaseResponse.text();
+          console.warn(`Expected JSON response but got: ${responseText.substring(0, 100)}`);
+          return; // Exit early but don't throw
+        }
+
         const updatedBaseResult = await updatedBaseResponse.json();
 
         if (!updatedBaseResult.error) {
