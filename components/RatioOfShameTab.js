@@ -103,46 +103,73 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
     setLoading(true);
 
     try {
-      console.log('🔄 Refreshing ALL addresses for Base chain...');
+      console.log('🔄 Starting batch refresh for ALL addresses...');
 
-      const baseResponse = await fetch('/api/ratio-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chain: 'base',
-          scanType: 'scanEverything',
-          batchSize: 10  // Reduced from 50 to prevent timeouts
-        })
-      });
+      const batchSize = 50;  // Process 50 addresses per batch
+      let offset = 0;
+      let hasMore = true;
+      let totalCount = 0;
+      let processedCount = 0;
 
-      // Check if the response is ok and is JSON
-      if (!baseResponse.ok) {
-        const errorText = await baseResponse.text();
-        throw new Error(`API request failed (${baseResponse.status}): ${errorText}`);
+      while (hasMore) {
+        console.log(`📑 Processing batch starting at ${offset}...`);
+
+        const baseResponse = await fetch('/api/ratio-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chain: 'base',
+            scanType: 'scanEverything',
+            batchSize: 10,
+            offset: offset,
+            limit: batchSize
+          })
+        });
+
+        // Check if the response is ok and is JSON
+        if (!baseResponse.ok) {
+          const errorText = await baseResponse.text();
+          throw new Error(`API request failed (${baseResponse.status}): ${errorText}`);
+        }
+
+        // Check Content-Type header
+        const contentType = baseResponse.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const responseText = await baseResponse.text();
+          throw new Error(`Expected JSON response but got: ${responseText.substring(0, 100)}`);
+        }
+
+        const baseResult = await baseResponse.json();
+
+        if (baseResult.error) {
+          console.error('Base error:', baseResult.error);
+          throw new Error(baseResult.error);
+        }
+
+        // Get total count from first response
+        if (offset === 0 && baseResult.totalAddressCount) {
+          totalCount = baseResult.totalAddressCount;
+          console.log(`📊 Total addresses to process: ${totalCount}`);
+        }
+
+        processedCount += baseResult.addressesScanned;
+        console.log(`✅ Processed ${processedCount}/${totalCount || '?'} addresses`);
+
+        // Check if we have more to process
+        if (baseResult.addressesScanned < batchSize || processedCount >= totalCount) {
+          hasMore = false;
+        } else {
+          offset += batchSize;
+          // Small delay between batches to avoid overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
 
-      // Check Content-Type header
-      const contentType = baseResponse.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const responseText = await baseResponse.text();
-        throw new Error(`Expected JSON response but got: ${responseText.substring(0, 100)}`);
-      }
+      // After all batches, load the final updated data
+      console.log('📥 Loading final updated data...');
+      await loadCachedData();
 
-      const baseResult = await baseResponse.json();
-
-      if (baseResult.error) console.error('Base error:', baseResult.error);
-
-      const baseWithChain = (baseResult.ratioData || []).map(item => ({
-        ...item,
-        chain: 'base'
-      }));
-
-      setBaseData(baseWithChain);
-      setLastUpdated({
-        base: baseResult.lastUpdated
-      });
-
-      console.log(`✅ Refresh All complete - Base: ${baseWithChain.length} addresses`);
+      console.log(`✅ Refresh All complete - processed ${processedCount} addresses`);
 
     } catch (err) {
       console.error('Refresh All error:', err);

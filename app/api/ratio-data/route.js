@@ -87,7 +87,7 @@ export async function POST(req) {
   };
 
   try {
-    const { chain = 'base', scanType = 'update', batchSize = 10 } = await req.json();
+    const { chain = 'base', scanType = 'update', batchSize = 10, offset = 0, limit = 50 } = await req.json();
     log(`📊 Starting ratio calculation for ${chain} chain (${scanType} mode)`);
 
     // Validate parameters
@@ -120,9 +120,15 @@ export async function POST(req) {
       log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
     } else if (scanType === 'scanEverything') {
       // Get all addresses with any miners (active or inactive)
-      addressesToProcess = await getAllAddressesWithAnyMiners(chain);
-      log(`🔍 Found ${addressesToProcess.length} addresses with any miners`);
+      const allAddresses = await getAllAddressesWithAnyMiners(chain);
+      // Use pagination to process addresses in chunks
+      addressesToProcess = allAddresses.slice(offset, offset + limit);
+      log(`🔍 Found ${allAddresses.length} total addresses with any miners`);
+      log(`📑 Processing batch: ${offset + 1}-${Math.min(offset + limit, allAddresses.length)} of ${allAddresses.length}`);
       log(`📝 Sample addresses: ${addressesToProcess.slice(0, 5).join(', ')}`);
+
+      // Add total count to response for client pagination
+      debugLogs.push(`TOTAL_COUNT:${allAddresses.length}`);
     } else {
       // Default: Get only addresses that need ratio calculation (no cached ratios)
       addressesToProcess = await getAddressesNeedingRatioCalculation(chain, batchSize);
@@ -232,6 +238,13 @@ export async function POST(req) {
     // Get updated ratio data
     const updatedRatios = await getCachedRatios(chain, 1000);
 
+    // Extract total count if available
+    let totalAddressCount = null;
+    const totalCountLog = debugLogs.find(log => log.includes('TOTAL_COUNT:'));
+    if (totalCountLog) {
+      totalAddressCount = parseInt(totalCountLog.split('TOTAL_COUNT:')[1]);
+    }
+
     return Response.json({
       success: true,
       chain,
@@ -241,6 +254,7 @@ export async function POST(req) {
       totalRatios: updatedRatios.length,
       scanDuration: duration,
       lastUpdated: new Date().toISOString(),
+      totalAddressCount,  // Include total count for pagination
       debugLogs
     });
 
