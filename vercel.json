@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "app/api/ratio-data/route.js": {
+      "maxDuration": 60
+    },
+    "app/api/refresh-14d-ratios/route.js": {
+      "maxDuration": 60
+    },
+    "app/api/scan-addresses/route.js": {
+      "maxDuration": 60
+    }
+  }
+}

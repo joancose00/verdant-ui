@@ -105,7 +105,7 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         body: JSON.stringify({
           chain: 'base',
           scanType: 'scanEverything',
-          batchSize: 50
+          batchSize: 10  // Reduced from 50 to prevent timeouts
         })
       });
 
@@ -159,7 +159,7 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
         body: JSON.stringify({
           chain: 'base',
           scanType: 'scanAllActive',
-          batchSize: 50
+          batchSize: 10  // Reduced from 50 to prevent timeouts
         })
       });
 
