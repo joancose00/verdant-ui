@@ -66,7 +66,9 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
       console.log('📋 Loading cached ratio data for Base chain...');
 
       // Load cached data from base chain via GET request
-      const baseResponse = await fetch('/api/ratio-data?chain=base', {
+      // Add timestamp to force fresh fetch
+      const timestamp = new Date().getTime();
+      const baseResponse = await fetch(`/api/ratio-data?chain=base&t=${timestamp}`, {
         cache: 'no-store',  // Prevent client-side caching
         headers: {
           'Cache-Control': 'no-cache',
@@ -404,6 +406,23 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
           flexWrap: 'wrap'
         }}>
           <button
+            onClick={loadCachedData}
+            disabled={loading}
+            style={{
+              padding: isMobile ? '8px 12px' : '10px 20px',
+              background: loading ? '#404040' : '#3b82f6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: isMobile ? '12px' : '14px',
+              cursor: loading ? 'not-allowed' : 'pointer'
+            }}
+            title="Reload data from database (fast)"
+          >
+            {loading ? 'Loading...' : 'Quick Refresh'}
+          </button>
+
+          <button
             onClick={refreshAllData}
             disabled={loading}
             style={{
@@ -415,36 +434,20 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
               fontSize: isMobile ? '12px' : '14px',
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
-            title="Update ratios for ALL addresses in database"
+            title="Fetch new data from blockchain for ALL addresses (slow)"
           >
-            {loading ? 'Loading...' : 'Refresh All'}
-          </button>
-
-          <button
-            onClick={refreshActiveData}
-            disabled={loading}
-            style={{
-              padding: isMobile ? '8px 12px' : '10px 20px',
-              background: loading ? '#404040' : '#10b981',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: isMobile ? '12px' : '14px',
-              cursor: loading ? 'not-allowed' : 'pointer'
-            }}
-            title="Update ratios and 14-day ratios for addresses with active miners only"
-          >
-            {loading ? 'Loading...' : 'Refresh Active'}
+            {loading ? 'Loading...' : 'Refetch Data'}
           </button>
 
           <div style={{
             color: '#a3a3a3',
             fontSize: '12px',
             fontStyle: 'italic',
-            maxWidth: '200px',
-            lineHeight: '1.3'
+            maxWidth: '280px',
+            lineHeight: '1.4'
           }}>
-            ⚠️ Refresh operations may take several minutes to complete
+            <div>📊 <strong>Quick Refresh:</strong> Reloads existing data from database</div>
+            <div>🔄 <strong>Refetch Data:</strong> Fetches new blockchain data (takes several minutes)</div>
           </div>
 
 
@@ -722,7 +725,7 @@ export default function RatioOfShameTab({ savedState, onStateChange }) {
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
           <h3 style={{ color: '#ffffff', marginBottom: '8px' }}>No Ratio Data</h3>
           <p style={{ color: '#a3a3a3', marginBottom: '0' }}>
-            No addresses found. Click "Refresh All" or "Refresh Active" to load data.
+            No addresses found. Click "Quick Refresh" to reload from database or "Refetch Data" to fetch new blockchain data.
           </p>
         </div>
       )}
